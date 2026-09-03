@@ -266,8 +266,12 @@ for (const [id, hash] of Object.entries(shots)) {
 }
 const removed = Object.keys(baseline).filter((id) => !(id in shots) && !quarantined.has(id));
 
-// Stage the blobs worth keeping: everything new, plus every diff.
-for (const { id, hash } of [...added, ...changed]) {
+// Stage every image captured, not only the ones that moved. Sync skips what
+// the store already holds, so the extra cost is a local copy — and it makes the
+// store self-healing. Staging only the changes means a run whose upload failed
+// leaves those baselines missing from the store forever: nothing re-uploads
+// them, and every later diff for those stories shows a broken "before".
+for (const [id, hash] of Object.entries(shots)) {
   fs.copyFileSync(path.join(shotDir, `${id}.png`), path.join(blobDir, `${hash}.png`));
 }
 for (const entry of changed) {

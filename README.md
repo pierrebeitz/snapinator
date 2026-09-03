@@ -159,6 +159,14 @@ The bucket needs `PutObject` and `GetObject` on that prefix. Nothing else.
    only some of them.
 4. [`approve.yml`](.github/workflows/approve.yml) checks `author_association`,
    rewrites `snapshots.json`, and pushes to the branch.
+5. It then marks the `Visual` check green on the commit it just made — because
+   a push authenticated with `GITHUB_TOKEN` deliberately does not start a
+   workflow, so that commit would otherwise sit at `action_required` and block
+   the merge. Push with a PAT or a GitHub App token if you would rather have a
+   real second run.
+
+The comment is edited in place across pushes, so a story approved earlier stops
+being flagged and only genuinely new movement shows up.
 
 Step 4 does **not** re-run the browser. The pixels are already in the store
 under their content hash, so accepting is pure bookkeeping — it takes seconds,
@@ -214,3 +222,19 @@ If that isn't byte-identical, fix it before building anything on top.
 Roughly 400 lines of script, and three runtime dependencies: `playwright`,
 `pixelmatch`, `pngjs`. Everything else in `package.json` is the demo Storybook
 being tested, not the tool.
+
+---
+
+## Does it actually work
+
+Yes — [pull request #1](../../pull/1) is the real thing, not a mock-up. It
+recolours a button, catches three moved stories, approves them by comment, then
+catches a fourth change on a later push and approves that one too.
+
+The detail worth pausing on: the committed baseline was captured in a container
+on a Mac, and GitHub's Linux runner reproduced five of the eight stories **byte
+for byte**. Only the three that genuinely changed came back different. That is
+the property the whole design rests on, and it holds across machines, not just
+across two runs on one machine.
+
+A capture takes about a minute for eight stories.

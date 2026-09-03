@@ -139,15 +139,27 @@ const api = (path, init) =>
     },
   });
 
-const list = await api(`/repos/${repo}/issues/${pr}/comments?per_page=100`);
-if (!list.ok) throw new Error(`Listing comments failed: ${list.status} ${await list.text()}`);
-
 // One comment per pull request, edited in place — a run that moves eight
-// stories should not produce eight notifications.
-// `last`, not `first`: the approve workflow reads the run id from the last
-// marker comment, and editing a different one than it reads means approving a
-// stale run's hashes.
-const existing = (await list.json()).filter((c) => c.body?.startsWith(MARKER)).pop();
+// stories should not produce eight notifications. That promise inverts on a
+// busy pull request unless every page is read: miss the comment and each run
+// posts a new one.
+async function findExistingComment() {
+  let found = null;
+  for (let page = 1; page <= 20; page += 1) {
+    const res = await api(`/repos/${repo}/issues/${pr}/comments?per_page=100&page=${page}`);
+    if (!res.ok) throw new Error(`Listing comments failed: ${res.status} ${await res.text()}`);
+    const batch = await res.json();
+    // `last`, not `first`: the approve workflow reads the run id from the last
+    // marker comment, and editing a different one than it reads means
+    // approving a stale run's hashes.
+    const match = batch.filter((c) => c.body?.startsWith(MARKER)).pop();
+    if (match) found = match;
+    if (batch.length < 100) break;
+  }
+  return found;
+}
+
+const existing = await findExistingComment();
 
 const res = existing
   ? await api(`/repos/${repo}/issues/comments/${existing.id}`, { method: 'PATCH', body: JSON.stringify({ body: text }) })

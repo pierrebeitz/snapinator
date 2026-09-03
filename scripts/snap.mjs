@@ -180,6 +180,29 @@ async function capture(port, stories, outDir, { workers = WORKERS, settleMs = SE
           const root = document.querySelector('#storybook-root');
           return root && root.childElementCount > 0;
         }, null, { timeout: 15_000 });
+        // Wait for Storybook to finish rendering the story, play function and
+        // all. This suite has 87 of them across 25 files — they open cards,
+        // type sentences, click Save and await an error — and a story caught
+        // mid-interaction is a different picture every time. One of them
+        // rendered 260px of content on one run and 708px on another purely
+        // because the shot landed on either side of a click.
+        //
+        // `finished` is the terminal phase; `errored` and `aborted` are the
+        // other two, and waiting past them would just burn the timeout.
+        await page
+          .waitForFunction(
+            () => {
+              const phase = window.__STORYBOOK_PREVIEW__?.currentRender?.phase;
+              return phase === undefined || ['finished', 'errored', 'aborted'].includes(phase);
+            },
+            null,
+            { timeout: 20_000 },
+          )
+          .catch(() => {
+            // A story that never finishes still gets captured; the settle below
+            // is what it falls back to. Better a picture than a dropped story.
+          });
+
         await page.evaluate(() => document.fonts.ready);
 
         // A fixed settle, not an adaptive one. Waiting for the DOM to hold

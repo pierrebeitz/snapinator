@@ -20,7 +20,12 @@ import { PNG } from 'pngjs';
 import { renderReport } from './report.mjs';
 import { openStore } from './store.mjs';
 
-const STATIC = 'storybook-static';
+const STATIC = process.env.SNAPMATIC_STATIC || 'storybook-static';
+const WORKERS = Number(process.env.SNAPMATIC_WORKERS || 4);
+// Frozen clock and seeded randomness. A story that renders "2 minutes ago" or
+// a uuid is a story that differs on every run, and one flaky story teaches a
+// team to ignore the whole check.
+const FREEZE = process.env.SNAPMATIC_FREEZE !== '0';
 const MANIFEST = process.env.SNAPMATIC_MANIFEST || 'snapshots.json';
 const WORK = '.snapmatic/run';
 const VIEWPORT = { width: 1280, height: 720 };
@@ -32,13 +37,38 @@ const acceptAll = acceptArg === '--accept';
 const acceptOnly = acceptArg?.startsWith('--accept=') ? acceptArg.slice(9).split(',').filter(Boolean) : [];
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+const failures = [];
 const blobKey = (hash) => `img/${hash}.png`;
 
 /* ---------------------------------------------------------------- serving */
 
 // Storybook's built output expects to be served over http, not file://.
 // Twenty lines beats a dependency.
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
+const MIME = {
+  '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
+  '.css': 'text/css', '.json': 'application/json', '.map': 'application/json',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif', '.svg': 'image/svg+xml', '.webp': 'image/webp',
+  '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf', '.otf': 'font/otf', '.txt': 'text/plain',
+};
+
+// Applied before any story script runs.
+const DETERMINISM_SHIM = `
+  const FIXED = new Date('2026-01-01T12:00:00Z').getTime();
+  const RealDate = Date;
+  globalThis.Date = class extends RealDate {
+    constructor(...args) { super(...(args.length ? args : [FIXED])); }
+    static now() { return FIXED; }
+  };
+  globalThis.Date.parse = RealDate.parse;
+  globalThis.Date.UTC = RealDate.UTC;
+  let seed = 0x2f6e2b1;
+  Math.random = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+`;
 
 function serve(root) {
   const base = path.resolve(root);
@@ -61,63 +91,85 @@ function serve(root) {
 
 async function capture(port, stories, outDir) {
   const browser = await chromium.launch();
-  // Every option here is a determinism knob. Drop one and you buy flaky diffs.
-  const context = await browser.newContext({
-    viewport: VIEWPORT,
-    deviceScaleFactor: 1,
-    colorScheme: 'light',
-    reducedMotion: 'reduce',
-    forcedColors: 'none',
-    locale: 'en-US',
-    timezoneId: 'UTC',
-  });
-  const page = await context.newPage();
   const shots = {};
+  const queue = [...stories];
+  const total = queue.length;
+  let done = 0;
 
-  for (const story of stories) {
-    const url = `http://127.0.0.1:${port}/iframe.html?viewMode=story&id=${encodeURIComponent(story.id)}`;
-    await page.goto(url, { waitUntil: 'load' });
-    await page.waitForFunction(() => {
-      const root = document.querySelector('#storybook-root');
-      return root && root.childElementCount > 0;
-    }, null, { timeout: 15_000 });
-    await page.evaluate(() => document.fonts.ready);
+  // One page per worker, pulling from a shared queue. Sequential capture is
+  // fine for a handful of stories and hopeless for a few hundred.
+  const worker = async () => {
+    // Every option here is a determinism knob. Drop one and you buy flaky diffs.
+    const context = await browser.newContext({
+      viewport: VIEWPORT,
+      deviceScaleFactor: 1,
+      colorScheme: 'light',
+      reducedMotion: 'reduce',
+      forcedColors: 'none',
+      locale: 'en-US',
+      timezoneId: 'UTC',
+    });
+    if (FREEZE) await context.addInitScript(DETERMINISM_SHIM);
+    const page = await context.newPage();
 
-    const file = path.join(outDir, `${story.id}.png`);
+    for (let story; (story = queue.shift()); ) {
+      const url = `http://127.0.0.1:${port}/iframe.html?viewMode=story&id=${encodeURIComponent(story.id)}`;
+      try {
+        await page.goto(url, { waitUntil: 'load' });
+        await page.waitForFunction(() => {
+          const root = document.querySelector('#storybook-root');
+          return root && root.childElementCount > 0;
+        }, null, { timeout: 15_000 });
+        await page.evaluate(() => document.fonts.ready);
+      } catch {
+        // A story that will not render is a finding, not a crash: record it as
+        // an empty frame so the run reports it instead of dying on story 12 of
+        // 400 and telling you nothing about the other 388.
+        failures.push(story.id);
+      }
 
-    // Render at the full viewport so layout is real, then crop to what the
-    // story actually drew. Shooting the whole frame makes a button 2% of a
-    // 1280x720 image, and in a three-column diff table that is a sliver nobody
-    // can review. Cropping to content keeps the picture legible while still
-    // catching a width regression — a component that goes full-bleed simply
-    // produces a much wider crop.
-    const clip = await page.evaluate((pad) => {
-      const root = document.querySelector('#storybook-root');
-      const rects = [...root.querySelectorAll('*')]
-        .map((el) => el.getBoundingClientRect())
-        .filter((r) => r.width > 0 && r.height > 0);
-      if (!rects.length) return null;
+      const file = path.join(outDir, `${story.id}.png`);
 
-      const left = Math.max(0, Math.min(...rects.map((r) => r.left)) - pad);
-      const top = Math.max(0, Math.min(...rects.map((r) => r.top)) - pad);
-      const right = Math.min(window.innerWidth, Math.max(...rects.map((r) => r.right)) + pad);
-      const bottom = Math.min(window.innerHeight, Math.max(...rects.map((r) => r.bottom)) + pad);
+      // Render at the full viewport so layout is real, then crop to what the
+      // story actually drew. Shooting the whole frame makes a button 2% of a
+      // 1280x720 image, and in a three-column diff table that is a sliver
+      // nobody can review. Cropping keeps the picture legible while still
+      // catching a width regression — a component that goes full-bleed simply
+      // produces a much wider crop.
+      const clip = await page.evaluate((pad) => {
+        const root = document.querySelector('#storybook-root');
+        if (!root) return null;
+        const rects = [...root.querySelectorAll('*')]
+          .map((el) => el.getBoundingClientRect())
+          .filter((r) => r.width > 0 && r.height > 0);
+        if (!rects.length) return null;
 
-      return {
-        x: Math.floor(left),
-        y: Math.floor(top),
-        width: Math.ceil(right - left),
-        height: Math.ceil(bottom - top),
-      };
-    }, 12);
+        const left = Math.max(0, Math.min(...rects.map((r) => r.left)) - pad);
+        const top = Math.max(0, Math.min(...rects.map((r) => r.top)) - pad);
+        const right = Math.min(window.innerWidth, Math.max(...rects.map((r) => r.right)) + pad);
+        const bottom = Math.min(window.innerHeight, Math.max(...rects.map((r) => r.bottom)) + pad);
 
-    // ponytail: one page, one story at a time. Parallelise with N contexts
-    // when the suite outgrows a couple of minutes.
-    await page.screenshot({ path: file, animations: 'disabled', caret: 'hide', ...(clip ? { clip } : {}) });
-    shots[story.id] = sha256(fs.readFileSync(file));
-    process.stdout.write(`  ${story.id}\n`);
-  }
+        return {
+          x: Math.floor(left),
+          y: Math.floor(top),
+          width: Math.max(1, Math.ceil(right - left)),
+          height: Math.max(1, Math.ceil(bottom - top)),
+        };
+      }, 12);
 
+      await page.screenshot({ path: file, animations: 'disabled', caret: 'hide', ...(clip ? { clip } : {}) });
+      shots[story.id] = sha256(fs.readFileSync(file));
+
+      done += 1;
+      if (total <= 20 || done % 25 === 0 || done === total) {
+        process.stdout.write(`  ${done}/${total}\n`);
+      }
+    }
+
+    await context.close();
+  };
+
+  await Promise.all(Array.from({ length: Math.min(WORKERS, total) }, worker));
   await browser.close();
   return shots;
 }
@@ -214,7 +266,11 @@ for (const entry of [...added, ...changed]) {
   }
 }
 
-const summary = { runId: RUN_ID, total: stories.length, added, changed, removed };
+if (failures.length) {
+  console.log(`\n${failures.length} story(ies) never rendered: ${failures.slice(0, 10).join(', ')}${failures.length > 10 ? ', …' : ''}`);
+}
+
+const summary = { runId: RUN_ID, total: stories.length, added, changed, removed, failures };
 fs.writeFileSync(path.join(reportDir, 'summary.json'), JSON.stringify(summary, null, 2));
 fs.writeFileSync(path.join(reportDir, 'index.html'), renderReport(summary));
 

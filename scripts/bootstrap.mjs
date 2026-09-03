@@ -19,18 +19,25 @@
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const BASELINES = process.env.SNAPINATOR_MANIFEST || 'snapshots.json';
 const QUARANTINE = process.env.SNAPINATOR_QUARANTINE || 'quarantine.json';
 const SUMMARY = '.snapinator/run/report/summary.json';
 
-const snap = (args, env) => {
+// Resolved next to this file, not relative to the working directory: this
+// script gets vendored into other repositories under whatever directory name
+// they choose, and a hard-coded path there fails as a plain exit 1 — which the
+// tolerated-exit-code below would then read as "stories moved".
+const SNAP = fileURLToPath(new URL('snap.mjs', import.meta.url));
+
+const snap = (args, { tolerateChanges = false } = {}) => {
   try {
-    execFileSync('node', ['scripts/snap.mjs', ...args], { stdio: 'inherit', env: { ...process.env, ...env } });
+    execFileSync('node', [SNAP, ...args], { stdio: 'inherit' });
   } catch (error) {
     // A comparison run exits 1 when anything moved; that is the signal, not a
-    // failure. Anything else is.
-    if (error.status !== 1) throw error;
+    // failure. Nothing else earns that leniency.
+    if (!(tolerateChanges && error.status === 1)) throw error;
   }
 };
 
@@ -40,9 +47,11 @@ fs.rmSync(BASELINES, { force: true });
 
 console.log('Pass 1 of 2 — accepting everything');
 snap(['--accept']);
+if (!fs.existsSync(BASELINES)) throw new Error(`Pass 1 wrote no manifest at ${BASELINES}.`);
 
 console.log('\nPass 2 of 2 — comparing against it');
-snap([]);
+snap([], { tolerateChanges: true });
+if (!fs.existsSync(SUMMARY)) throw new Error(`Pass 2 wrote no summary at ${SUMMARY}.`);
 
 const summary = JSON.parse(fs.readFileSync(SUMMARY, 'utf8'));
 const unstable = [...summary.changed.map((c) => c.id), ...summary.failures.map((f) => f.id)].sort();

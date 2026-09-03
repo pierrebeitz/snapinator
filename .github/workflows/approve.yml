@@ -64,6 +64,7 @@ jobs:
           node-version: 22
 
       - uses: aws-actions/configure-aws-credentials@v6
+        if: vars.SNAPMATIC_STORE != ''
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}

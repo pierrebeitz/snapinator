@@ -292,12 +292,26 @@ if (failures.length) {
   console.log(`\n${failures.length} story(ies) never rendered: ${failures.slice(0, 10).join(', ')}${failures.length > 10 ? ', …' : ''}`);
 }
 
-const summary = { runId: RUN_ID, total: stories.length, added, changed, removed, failures };
+// Publish the images before anything claims they exist. A run that reports a
+// diff and links to pictures that were never uploaded is worse than one that
+// reports the diff plainly — it looks broken rather than informative.
+let published = true;
+try {
+  store.publish(blobDir, 'img');
+} catch (error) {
+  published = false;
+  console.error(`\nCould not publish images to ${store.describe()}: ${error.message}`);
+}
+
+const summary = { runId: RUN_ID, total: stories.length, added, changed, removed, failures, published };
 fs.writeFileSync(path.join(reportDir, 'summary.json'), JSON.stringify(summary, null, 2));
 fs.writeFileSync(path.join(reportDir, 'index.html'), renderReport(summary));
 
-store.publish(blobDir, 'img');
-store.publish(reportDir, `report/${RUN_ID}`);
+try {
+  store.publish(reportDir, `report/${RUN_ID}`);
+} catch {
+  // Already reported above; the report is still in the run directory.
+}
 
 const accepted = acceptAll ? [...added, ...changed].map((e) => e.id) : acceptOnly;
 if (accepted.length || (acceptAll && removed.length)) {

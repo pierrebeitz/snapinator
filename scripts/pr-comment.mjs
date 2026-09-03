@@ -26,15 +26,17 @@ const pr = process.argv[2];
 const publicUrl = process.env.SNAPMATIC_PUBLIC_URL ?? '';
 const runUrl = process.env.RUN_URL ?? '';
 
-// Without a public URL there is nowhere to point an <img>, so name what to
-// configure rather than posting two dozen broken images.
-const noImages = !publicUrl;
 const img = (hash) => `${publicUrl}/img/${hash}.png`;
 // No width attribute: the crops are already tight, so GitHub shows them at
 // natural size and only scales down when a cell is too narrow.
 const cell = (hash, label) => (hash ? `<img src="${img(hash)}" alt="${label}">` : '_none_');
 
 const summary = fs.existsSync(SUMMARY) ? JSON.parse(fs.readFileSync(SUMMARY, 'utf8')) : null;
+
+// Without a public URL there is nowhere to point an <img>. Same when a publish
+// failed: those URLs resolve to nothing, and a wall of broken images reads as a
+// broken tool rather than a real finding.
+const noImages = !publicUrl || summary?.published === false;
 
 function body() {
   if (!summary) {

@@ -1,0 +1,89 @@
+name: Approve visual
+
+# `/approve-visual` on a pull request moves the baseline.
+#
+# This is the whole "approval service". There is no server, no database and no
+# session: GitHub already knows who may write to the repository, and that is
+# exactly the question an approve button has to answer. `author_association`
+# is the answer, and the audit log is the commit history.
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  approve:
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/approve-visual') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Acknowledge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/comments/${{ github.event.comment.id }}/reactions" -f content=eyes
+
+      - name: Resolve the pull request head
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${{ github.event.issue.number }}" \
+            --jq '"ref=\(.head.ref)\nrepo=\(.head.repo.full_name)"' >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ steps.pr.outputs.repo }}
+          ref: ${{ steps.pr.outputs.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find the run being approved
+        id: run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The Visual workflow edits one comment in place, and it carries the
+          # report URL. Read the run id back out of it rather than tracking
+          # state anywhere else.
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.issue.number }}/comments" \
+            --jq 'map(select(.body | startswith("<!-- snapmatic -->"))) | last.body' \
+            | grep -oE 'report/[^/]+/index.html' | head -1 | cut -d/ -f2 \
+            | sed 's/^/id=/' >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # No Storybook build and no browser: the pixels are already in the store
+      # under their content hash, so this is a manifest edit and nothing more.
+      - name: Move the baseline
+        env:
+          SNAPMATIC_STORE: ${{ vars.SNAPMATIC_STORE }}
+          COMMENT: ${{ github.event.comment.body }}
+        run: |
+          ids=$(printf '%s' "$COMMENT" | head -1 | cut -d' ' -f2-)
+          node scripts/accept.mjs "${{ steps.run.outputs.id }}" $ids
+
+      - name: Commit
+        env:
+          APPROVER: ${{ github.event.comment.user.login }}
+        run: |
+          if git diff --quiet snapshots.json; then
+            echo "Manifest already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add snapshots.json
+          git commit -m "chore(visual): accept baselines approved by @${APPROVER}"
+          git push

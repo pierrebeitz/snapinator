@@ -1,0 +1,28 @@
+/*
+ * Deterministic-by-construction styling.
+ *
+ * Every rule here exists to make two runs of the same story produce the same
+ * bytes. Real projects need the same discipline; see README "Determinism".
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  /* Animations and transitions are the #1 source of flaky snapshots: the
+     screenshot lands mid-tween and the diff is noise. Freeze them. */
+  animation: none !important;
+  transition: none !important;
+  caret-color: transparent;
+}
+
+body {
+  margin: 0;
+  padding: 24px;
+  background: #fff;
+  /* A stack that resolves to the same face inside the pinned container.
+     Never `system-ui` — that is a different font on every machine. */
+  font-family: 'DejaVu Sans', Verdana, sans-serif;
+  font-size: 14px;
+  color: #1a1a1a;
+  -webkit-font-smoothing: antialiased;
+}

@@ -1,0 +1,60 @@
+name: Visual
+
+# Capture every story, compare against the manifest in git, publish the review
+# report to S3, and link it from the pull request.
+#
+# The container tag is pinned to the exact `playwright` version in package.json.
+# That pairing is the whole determinism story: baselines are only ever produced
+# by this image, so a developer's font stack can never enter the manifest.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: visual-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write # OIDC into AWS; no long-lived keys
+
+jobs:
+  snap:
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.62.1-noble
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: yarn
+
+      - run: corepack enable && yarn install --immutable
+
+      - run: yarn build-storybook
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Capture and compare
+        id: snap
+        continue-on-error: true # A visual change is a review item, not a build failure.
+        env:
+          SNAPMATIC_STORE: ${{ vars.SNAPMATIC_STORE }}
+          SNAPMATIC_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: node scripts/snap.mjs
+
+      - name: Comment the report
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          REPORT_BASE: ${{ vars.SNAPMATIC_PUBLIC_URL }}
+          CLEAN: ${{ steps.snap.outcome == 'success' }}
+        run: bash .github/scripts/comment-report.sh ${{ github.event.pull_request.number }}

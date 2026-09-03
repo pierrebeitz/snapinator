@@ -14,6 +14,7 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write
+  actions: read # to pull the report artifact when there is no bucket
 
 jobs:
   approve:

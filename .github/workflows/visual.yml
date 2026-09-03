@@ -28,11 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: yarn
-
+      # The Playwright image already ships node and the matching browsers.
       - run: corepack enable && yarn install --immutable
 
       - run: yarn build-storybook
@@ -43,18 +39,19 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Capture and compare
-        id: snap
         continue-on-error: true # A visual change is a review item, not a build failure.
         env:
           SNAPMATIC_STORE: ${{ vars.SNAPMATIC_STORE }}
           SNAPMATIC_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
         run: node scripts/snap.mjs
 
+      # The diff is rendered *into* the comment, not linked from it. Someone who
+      # changed a colour in the GitHub web editor never has to leave the tab,
+      # install anything, or know this tool exists.
       - name: Comment the report
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
           REPORT_BASE: ${{ vars.SNAPMATIC_PUBLIC_URL }}
-          CLEAN: ${{ steps.snap.outcome == 'success' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash .github/scripts/comment-report.sh ${{ github.event.pull_request.number }}

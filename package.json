@@ -8,7 +8,8 @@
     "build-storybook": "storybook build",
     "snap": "node scripts/snap.mjs",
     "snap:accept": "node scripts/snap.mjs --accept",
-    "snap:docker": "scripts/snap-docker.sh"
+    "snap:docker": "scripts/snap-docker.sh",
+    "selfcheck": "scripts/selfcheck.sh"
   },
   "dependencies": {
     "react": "^19.2.0",
@@ -18,7 +19,7 @@
     "@storybook/react-vite": "^10.5.10",
     "@vitejs/plugin-react": "^5.1.0",
     "pixelmatch": "^7.1.0",
-    "playwright": "^1.61.1",
+    "playwright": "1.62.1",
     "pngjs": "^7.0.0",
     "storybook": "^10.5.10",
     "vite": "^7.1.0"

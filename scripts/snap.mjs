@@ -187,9 +187,6 @@ fs.writeFileSync(path.join(reportDir, 'index.html'), renderReport(summary));
 store.publish(blobDir, 'img');
 store.publish(reportDir, `report/${RUN_ID}`);
 
-const next = { ...baseline, ...shots };
-for (const id of removed) delete next[id];
-
 const accepted = acceptAll ? [...added, ...changed].map((e) => e.id) : acceptOnly;
 if (accepted.length || (acceptAll && removed.length)) {
   const merged = { ...baseline };
@@ -198,8 +195,6 @@ if (accepted.length || (acceptAll && removed.length)) {
   fs.writeFileSync(MANIFEST, `${JSON.stringify(sortKeys(merged), null, 2)}\n`);
   console.log(`\nAccepted ${accepted.length} snapshot(s) into ${MANIFEST}`);
 }
-fs.writeFileSync(path.join(WORK, 'snapshots.next.json'), `${JSON.stringify(sortKeys(next), null, 2)}\n`);
-
 console.log(`\n${added.length} added · ${changed.length} changed · ${removed.length} removed`);
 console.log(`Report: ${path.join(store.describe(), 'report', RUN_ID, 'index.html')}`);
 

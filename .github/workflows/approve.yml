@@ -36,6 +36,9 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/pulls/${{ github.event.issue.number }}" \
             --jq '"ref=\(.head.ref)\nrepo=\(.head.repo.full_name)"' >> "$GITHUB_OUTPUT"
 
+      # Note: GITHUB_TOKEN cannot push to a fork. For fork pull requests this
+      # step needs a token that can, or the contributor runs `yarn snap:accept`
+      # themselves and commits the manifest.
       - uses: actions/checkout@v6
         with:
           repository: ${{ steps.pr.outputs.repo }}
@@ -55,6 +58,8 @@ jobs:
             | grep -oE 'report/[^/]+/index.html' | head -1 | cut -d/ -f2 \
             | sed 's/^/id=/' >> "$GITHUB_OUTPUT"
 
+      # accept.mjs touches nothing but node builtins and the aws CLI, so there
+      # is no install step here at all.
       - uses: actions/setup-node@v6
         with:
           node-version: 22

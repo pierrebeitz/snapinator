@@ -9,13 +9,23 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-version=$(node -p "require('./package.json').devDependencies.playwright.replace('^','')")
+# The *resolved* version, not the range in package.json: a caret would let the
+# installed browser drift away from the container tag, and the mismatch only
+# shows up as a container that cannot launch.
+version=$(node -e "process.stdout.write(require('playwright/package.json').version)")
 image="mcr.microsoft.com/playwright:v${version}-noble"
 work=".snapmatic/determinism"
 
-[[ -f storybook-static/index.json ]] || yarn build-storybook
+# CI pins the same tag as a literal string, which nothing can resolve for it.
+# Catch the drift here, once, instead of in a red build.
+pinned=$(grep -oE 'mcr\.microsoft\.com/playwright:v[0-9.]+-noble' .github/workflows/visual.yml | head -1)
+if [[ "$pinned" != "$image" ]]; then
+  echo "✗ visual.yml pins ${pinned}, but playwright resolves to ${version}."
+  echo "  Update the container tag to ${image}."
+  exit 1
+fi
 
-rm -rf "$work" && mkdir -p "$work"
+[[ -f storybook-static/index.json ]] || yarn build-storybook
 
 capture() {
   docker run --rm \
@@ -23,18 +33,27 @@ capture() {
     -v "$PWD:/w" -w /w \
     -e HOME=/tmp \
     -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    -e SNAPMATIC_MANIFEST="${work}/$1.json" \
-    -e SNAPMATIC_STORE="${work}/store" \
-    -e SNAPMATIC_RUN_ID="$1" \
-    "$image" node scripts/snap.mjs --accept >/dev/null
+    -e SNAPMATIC_MANIFEST="$1" \
+    -e SNAPMATIC_STORE="$2" \
+    -e SNAPMATIC_RUN_ID="$3" \
+    "$image" node scripts/snap.mjs "${4:-}"
 }
 
+# `accept` is the only sanctioned way to write a baseline: one pass, in the
+# container, straight into the committed manifest.
+if [[ "${1:-}" == "accept" ]]; then
+  capture "${SNAPMATIC_MANIFEST:-snapshots.json}" "${SNAPMATIC_STORE:-.snapmatic/store}" "seed-$(date +%s)" --accept
+  exit
+fi
+
+rm -rf "$work" && mkdir -p "$work"
+
 echo "Capturing twice in ${image}"
-capture pass-a
-capture pass-b
+capture "${work}/pass-a.json" "${work}/store" pass-a --accept >/dev/null
+capture "${work}/pass-b.json" "${work}/store" pass-b --accept >/dev/null
 
 if diff -q "${work}/pass-a.json" "${work}/pass-b.json" >/dev/null; then
-  echo "✓ Deterministic — $(node -p "Object.keys(require('./${work}/pass-a.json')).length") stories, identical bytes."
+  echo "✓ Deterministic — $(node -e "process.stdout.write(String(Object.keys(require('./${work}/pass-a.json')).length))") stories, identical bytes."
 else
   echo "✗ Non-deterministic. These stories differ between two identical runs:"
   diff "${work}/pass-a.json" "${work}/pass-b.json" | grep -oE '"[^"]+":' | sort -u

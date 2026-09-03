@@ -1,10 +1,10 @@
 {
-  "badge--neutral": "0cb7f322e848cc8a599c9529aaaa2d5e52e5df12f74816fedb54a66b978970e7",
-  "badge--success": "102f3a2cb3d0c50ae88da6811b8e1e3cc2ccfecf94c1493160e247de0cd80162",
-  "badge--warning": "d197b5e02d0aeab4a02f9f363aa52b3b1c406c2fe9c100340667393123c66d72",
-  "button--danger": "654fe26c88f55490622f6f883731cac0d66d35fe73da5bfb051cf7196cd3fce7",
-  "button--primary": "1dde039ffbabd948c3441bfeddae0fd460b2152cf1183df33e3d6e1ec69f72dc",
-  "button--secondary": "eaee7473b2cbe97d92ce7af5e0a3907ac71d092e229feba88b2f167b7143d189",
-  "card--default": "21fc899cc044baa5bf71eddc92a4783aa7959bbacc0b5dc8b91107d520d82b34",
-  "card--with-tone": "0c66f08c3e1a461641afa497368d50cfe9d1088546129072fee4276a53256570"
+  "badge--neutral": "cb4bfb77069b879062b42e016a79fed79e2cbf79ea94c38f309118012427b25d",
+  "badge--success": "c22a6953f4fd4b032d740cc304891d6df50a8e7f5f3a4cf021931a9f1956ba66",
+  "badge--warning": "35ef8aaef3e533bc05cba237c595805a239d39d1e87774bb6c5401f593dfc204",
+  "button--danger": "43ce800187586c501c03004f45ffd4fe4fdb875ad78ebb4c7f8dc8fbc743522f",
+  "button--primary": "17dcba9ca610a5cd1342e2cf194c6beaeb7923acdef2cefd77c39d1875e95d53",
+  "button--secondary": "249abcd7650757a4cfd821b155b2c3fc84f4451963292993672624b4df5c613b",
+  "card--default": "16616cd68b456511d72a2ecdb7b48fda29f4a0ef6d71835f723a180fda598d46",
+  "card--with-tone": "608d29bcb892c22cf416b47e199a22200f5f9d2323d37a331f8306b9495e9f83"
 }

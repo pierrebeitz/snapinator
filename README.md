@@ -47,38 +47,84 @@ Naming a blob after its own hash is the trick the rest of the design rests on.
 
 ---
 
-## Try it, no AWS needed
+## The path for someone who never opens a terminal
+
+This is the case the whole thing is built around. A designer changes a colour
+using GitHub's own web editor:
+
+1. Open `src/components/Button.jsx` on github.com, click the pencil, change
+   `#2b6cb0` to `#7c3aed`.
+2. **Commit changes…** → *Create a new branch and start a pull request*.
+3. Wait about three minutes. A comment appears on the pull request with
+   **before, after, and a diff image, rendered inline** — no link to follow, no
+   report to open, no tool to install.
+4. It shows three stories, not one, because `Card` renders `Button`. Seeing the
+   blast radius is the entire point.
+5. If it looks right: comment `/approve-visual`. A bot commits the new hashes to
+   the branch. Merge.
+
+Nothing was installed and nothing was run locally. The only thing that gates
+approval is write access to the repository, which GitHub already tracks.
+
+If it looks wrong, they change the hex again and push. The comment is edited in
+place rather than appended, so the pull request never becomes a wall of stale
+screenshots.
+
+---
+
+## Try it
 
 ```bash
 yarn install
 yarn playwright install chromium
 yarn build-storybook
-
-yarn snap:accept      # seed the baseline — writes snapshots.json
+yarn snap
 ```
 
-Now break something on purpose:
+**Every one of the eight stories will differ.** That is not a bug — it is the
+most important thing in this repository, and it is better learned by running it
+than by reading about it. The committed baseline was produced inside the pinned
+container; your laptop has different fonts and a different renderer, so it
+cannot reproduce those bytes and never will. Baselines that a developer machine
+can write are baselines that break for everyone else.
+
+Do it properly instead:
+
+```bash
+yarn snap:docker     # captures twice in the pinned container, compares
+```
+
+That is the only capture path that is allowed to produce a baseline.
+
+### Seeing a real change
 
 ```bash
 sed -i '' 's/#2b6cb0/#7c3aed/' src/components/Button.jsx
-yarn build-storybook && yarn snap
 ```
 
-Exit code 1, and the command prints the path to a report — `open` it:
+Then run the loop against a throwaway manifest, so the committed one stays put:
+
+```bash
+yarn selfcheck
+```
+
+It seeds a baseline, recolours the button, proves the change is caught, approves
+one story, approves the rest, and proves the suite goes quiet again — through
+the real pipeline, not a mock.
+
+Note what it asserts: **three** stories move, not one. `Card` renders a
+`Button`, so recolouring the button moves every story downstream of it. That
+blast radius is the reason to look at a report instead of trusting a changelog.
+
+`snap.mjs` prints the path to each report — `open` it:
 
 ```
 3 snapshots moved
-Report: .snapmatic/store/report/2026-09-03T17-35-17-289Z/index.html
+Report: .snapmatic/selfcheck/store/report/2026-09-03T17-35-17-289Z/index.html
 ```
 
-Three, not one: `Card` renders a `Button`, so changing the button moves every
-story downstream of it. That blast radius is the reason to look at a report
-instead of trusting a changelog.
-
-The default store is a local directory (`.snapmatic/store`), so all of that
-runs offline. Point `SNAPMATIC_STORE` at a bucket and nothing else changes.
-
----
+The default store is a local directory, so all of that runs offline. Point
+`SNAPMATIC_STORE` at a bucket and nothing else changes.
 
 ## Wiring it to S3
 
@@ -105,9 +151,10 @@ The bucket needs `PutObject` and `GetObject` on that prefix. Nothing else.
 ## The approve flow
 
 1. A pull request runs [`visual.yml`](.github/workflows/visual.yml) in a pinned
-   Playwright container, publishes the report, and edits a single PR comment
-   with the link.
-2. A human opens the report and looks at the diffs.
+   Playwright container, publishes the images, and edits a single PR comment to
+   show them inline.
+2. A human looks at the pictures without leaving the pull request. (The comment
+   also links a fuller report for runs too large to inline.)
 3. They comment `/approve-visual`, or `/approve-visual card--default` to accept
    only some of them.
 4. [`approve.yml`](.github/workflows/approve.yml) checks `author_association`,
@@ -129,8 +176,10 @@ This is the part that decides whether any of it works. The diffing is easy;
 making two runs produce the same bytes is not.
 
 **Baselines are only ever produced inside `mcr.microsoft.com/playwright:<exact
-version>`.** The container tag in `visual.yml` is pinned to the same version as
-the `playwright` dependency in `package.json`. Bump one, bump the other.
+version>`.** The `playwright` dependency is pinned exactly — no caret. A range
+lets the installed browser drift away from the container tag, and the only
+symptom is a container that refuses to launch, days later, in someone else's
+build. `yarn snap:docker` compares the two and fails loudly if they part ways.
 
 Everything else is defensive:
 

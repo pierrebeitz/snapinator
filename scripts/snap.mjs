@@ -28,6 +28,9 @@ const WORKERS = Number(process.env.SNAPINATOR_WORKERS || 4);
 const FREEZE = process.env.SNAPINATOR_FREEZE !== '0';
 // How long the DOM must hold still before the shot counts as settled.
 const SETTLE_MS = Number(process.env.SNAPINATOR_SETTLE_MS || 250);
+// Above this many changes, a second capture is not confirming a suspicion — it
+// is capturing the suite again, and the changes are real.
+const RETRY_LIMIT = Number(process.env.SNAPINATOR_RETRY_LIMIT || 40);
 // Stories known to disagree with themselves. Kept in a file rather than a
 // code constant so the list is visible in review and shrinks under pressure.
 const QUARANTINE = process.env.SNAPINATOR_QUARANTINE || '';
@@ -139,7 +142,7 @@ async function readOptOuts(port, ids) {
 
 /* ---------------------------------------------------------------- capture */
 
-async function capture(port, stories, outDir) {
+async function capture(port, stories, outDir, { workers = WORKERS, settleMs = SETTLE_MS } = {}) {
   const browser = await chromium.launch();
   const shots = {};
   const queue = [...stories];
@@ -184,7 +187,7 @@ async function capture(port, stories, outDir) {
         // two bursts goes quiet in between, so the shot is taken at whichever
         // burst the machine happened to be between. A fixed pause always
         // captures the same moment in the story's life.
-        await page.waitForTimeout(SETTLE_MS);
+        await page.waitForTimeout(settleMs);
 
         // Render at the full viewport so layout is real, then crop to what the
         // story actually drew. Shooting the whole frame makes a button 2% of a
@@ -233,7 +236,7 @@ async function capture(port, stories, outDir) {
     await context.close();
   };
 
-  await Promise.all(Array.from({ length: Math.min(WORKERS, total) }, worker));
+  await Promise.all(Array.from({ length: Math.min(workers, total) }, worker));
   await browser.close();
   return shots;
 }
@@ -308,7 +311,6 @@ if (optedOut.size) console.log(`${optedOut.size} opted out with chromatic.disabl
 
 console.log(`Capturing ${toCapture.length} stories${quarantined.size ? `, ${quarantined.size} quarantined` : ''}`);
 const shots = await capture(port, toCapture, shotDir);
-server.close();
 
 const baseline = read(MANIFEST, {});
 const store = openStore();
@@ -343,6 +345,39 @@ for (const entry of changed) {
   entry.diff = diff?.hash ?? null;
   entry.pixels = diff?.pixels ?? null;
 }
+
+// A story that disagrees under load and agrees when asked again was never
+// disagreeing about anything. Capture the handful that moved a second time,
+// alone and with a longer pause, and keep only the ones that still differ.
+//
+// This is the difference between a gate people trust and one they mute: a
+// four-core runner with four workers gives each story less CPU than a laptop
+// does, and the stories that lose that race are not the stories that changed.
+if (changed.length && changed.length <= RETRY_LIMIT) {
+  console.log(`\nConfirming ${changed.length} change(s) with a second capture`);
+  const retryDir = path.join(WORK, 'retry');
+  fs.mkdirSync(retryDir, { recursive: true });
+
+  // One worker, twice the pause: the retry exists to remove contention, so it
+  // must not run under the conditions that caused the disagreement.
+  const again = await capture(
+    port,
+    changed.map((e) => toCapture.find((s) => s.id === e.id)).filter(Boolean),
+    retryDir,
+    { workers: 1, settleMs: SETTLE_MS * 2 },
+  );
+
+  const blips = changed.filter((e) => again[e.id] === e.was);
+  for (const blip of blips) {
+    changed.splice(changed.indexOf(blip), 1);
+    shots[blip.id] = blip.was; // it matches the baseline; leave the manifest alone
+  }
+  if (blips.length) {
+    console.log(`${blips.length} did not reproduce and were dropped: ${blips.map((b) => b.id).join(', ')}`);
+  }
+}
+
+server.close();
 
 // A story can re-encode to different bytes without a single pixel moving. The
 // manifest records bytes, but the gate is about what people see, so drop those

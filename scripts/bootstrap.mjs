@@ -45,16 +45,28 @@ const snap = (args, { tolerateChanges = false } = {}) => {
 fs.writeFileSync(QUARANTINE, '[]\n');
 fs.rmSync(BASELINES, { force: true });
 
-console.log('Pass 1 of 2 — accepting everything');
+// Two samples cannot separate stable from flaky. A story that flakes one run
+// in five agrees with itself 68% of the time, so it joins the baseline and
+// reddens the gate later — one story per run, exactly when people are deciding
+// whether to trust this. Each extra pass is one more chance to catch it.
+const PASSES = Number(process.env.SNAPINATOR_BOOTSTRAP_PASSES || 3);
+
+console.log(`Pass 1 of ${PASSES} — accepting everything`);
 snap(['--accept']);
 if (!fs.existsSync(BASELINES)) throw new Error(`Pass 1 wrote no manifest at ${BASELINES}.`);
 
-console.log('\nPass 2 of 2 — comparing against it');
-snap([], { tolerateChanges: true });
-if (!fs.existsSync(SUMMARY)) throw new Error(`Pass 2 wrote no summary at ${SUMMARY}.`);
+const unstableSet = new Set();
+for (let pass = 2; pass <= PASSES; pass += 1) {
+  console.log(`\nPass ${pass} of ${PASSES} — comparing against it`);
+  snap([], { tolerateChanges: true });
+  if (!fs.existsSync(SUMMARY)) throw new Error(`Pass ${pass} wrote no summary at ${SUMMARY}.`);
 
-const summary = JSON.parse(fs.readFileSync(SUMMARY, 'utf8'));
-const unstable = [...summary.changed.map((c) => c.id), ...summary.failures.map((f) => f.id)].sort();
+  const result = JSON.parse(fs.readFileSync(SUMMARY, 'utf8'));
+  for (const c of result.changed) unstableSet.add(c.id);
+  for (const f of result.failures) unstableSet.add(f.id);
+}
+
+const unstable = [...unstableSet].sort();
 
 const baseline = JSON.parse(fs.readFileSync(BASELINES, 'utf8'));
 for (const id of unstable) delete baseline[id];

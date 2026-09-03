@@ -126,6 +126,13 @@ async function capture(port, stories, outDir) {
 
     for (let story; (story = queue.shift()); ) {
       const url = `http://127.0.0.1:${port}/iframe.html?viewMode=story&id=${encodeURIComponent(story.id)}`;
+      const file = path.join(outDir, `${story.id}.png`);
+
+      // One story must never take the run down with it, and it must never be
+      // recorded as something it is not: if navigation fails, the previous
+      // story is still loaded, and screenshotting here would hash *that* page
+      // under *this* story's name — a baseline that is a picture of another
+      // component, stable enough to stay green forever.
       try {
         await page.goto(url, { waitUntil: 'load' });
         await page.waitForFunction(() => {
@@ -140,44 +147,44 @@ async function capture(port, stories, outDir) {
         // burst the machine happened to be between. A fixed pause always
         // captures the same moment in the story's life.
         await page.waitForTimeout(SETTLE_MS);
-      } catch {
-        // A story that will not render is a finding, not a crash: record it as
-        // an empty frame so the run reports it instead of dying on story 12 of
-        // 400 and telling you nothing about the other 388.
-        failures.push(story.id);
+
+        // Render at the full viewport so layout is real, then crop to what the
+        // story actually drew. Shooting the whole frame makes a button 2% of a
+        // 1280x720 image, and in a three-column diff table that is a sliver
+        // nobody can review.
+        const clip = await page.evaluate((pad) => {
+          const root = document.querySelector('#storybook-root');
+          if (!root) return null;
+          const rects = [...root.querySelectorAll('*')]
+            .map((el) => el.getBoundingClientRect())
+            .filter((r) => r.width > 0 && r.height > 0);
+          if (!rects.length) return null;
+
+          const left = Math.max(0, Math.min(...rects.map((r) => r.left)) - pad);
+          const top = Math.max(0, Math.min(...rects.map((r) => r.top)) - pad);
+          const right = Math.min(window.innerWidth, Math.max(...rects.map((r) => r.right)) + pad);
+          const bottom = Math.min(window.innerHeight, Math.max(...rects.map((r) => r.bottom)) + pad);
+
+          // A story drawn entirely below the fold yields an empty box, and
+          // Playwright rejects a clip like that. Fall back to the frame.
+          if (right - left < 1 || bottom - top < 1) return null;
+
+          return {
+            x: Math.floor(left),
+            y: Math.floor(top),
+            width: Math.max(1, Math.ceil(right - left)),
+            height: Math.max(1, Math.ceil(bottom - top)),
+          };
+        }, 12);
+
+        await page.screenshot({ path: file, animations: 'disabled', caret: 'hide', ...(clip ? { clip } : {}) });
+        shots[story.id] = sha256(fs.readFileSync(file));
+      } catch (error) {
+        // Recorded, reported, and left out of the comparison entirely. A story
+        // that did not render has no pixels to judge, and inventing some is how
+        // a gate goes green over a blank page.
+        failures.push({ id: story.id, reason: String(error.message ?? error).split('\n')[0] });
       }
-
-      const file = path.join(outDir, `${story.id}.png`);
-
-      // Render at the full viewport so layout is real, then crop to what the
-      // story actually drew. Shooting the whole frame makes a button 2% of a
-      // 1280x720 image, and in a three-column diff table that is a sliver
-      // nobody can review. Cropping keeps the picture legible while still
-      // catching a width regression — a component that goes full-bleed simply
-      // produces a much wider crop.
-      const clip = await page.evaluate((pad) => {
-        const root = document.querySelector('#storybook-root');
-        if (!root) return null;
-        const rects = [...root.querySelectorAll('*')]
-          .map((el) => el.getBoundingClientRect())
-          .filter((r) => r.width > 0 && r.height > 0);
-        if (!rects.length) return null;
-
-        const left = Math.max(0, Math.min(...rects.map((r) => r.left)) - pad);
-        const top = Math.max(0, Math.min(...rects.map((r) => r.top)) - pad);
-        const right = Math.min(window.innerWidth, Math.max(...rects.map((r) => r.right)) + pad);
-        const bottom = Math.min(window.innerHeight, Math.max(...rects.map((r) => r.bottom)) + pad);
-
-        return {
-          x: Math.floor(left),
-          y: Math.floor(top),
-          width: Math.max(1, Math.ceil(right - left)),
-          height: Math.max(1, Math.ceil(bottom - top)),
-        };
-      }, 12);
-
-      await page.screenshot({ path: file, animations: 'disabled', caret: 'hide', ...(clip ? { clip } : {}) });
-      shots[story.id] = sha256(fs.readFileSync(file));
 
       done += 1;
       if (total <= 20 || done % 25 === 0 || done === total) {
@@ -279,8 +286,16 @@ const removed = Object.keys(baseline).filter((id) => !(id in shots) && !quaranti
 for (const [id, hash] of Object.entries(shots)) {
   fs.copyFileSync(path.join(shotDir, `${id}.png`), path.join(blobDir, `${hash}.png`));
 }
+let storeUnreadable = null;
 for (const entry of changed) {
-  const diff = renderDiff(store, entry.id, entry.was, path.join(shotDir, `${entry.id}.png`), blobDir);
+  let diff = null;
+  try {
+    diff = storeUnreadable ? null : renderDiff(store, entry.id, entry.was, path.join(shotDir, `${entry.id}.png`), blobDir);
+  } catch (error) {
+    // Say it once, not forty times, and stop asking.
+    storeUnreadable ??= error.message;
+    console.error(`\nCould not read baselines: ${error.message}`);
+  }
   entry.diff = diff?.hash ?? null;
   entry.pixels = diff?.pixels ?? null;
 }
@@ -297,7 +312,7 @@ if (unmoved.length) {
 
 // Biggest movement first: with a cap on how many get inlined, the ones worth
 // looking at should not be decided alphabetically.
-changed.sort((a, b) => (b.pixels ?? Infinity) - (a.pixels ?? Infinity));
+changed.sort((a, b) => (b.pixels ?? -1) - (a.pixels ?? -1));
 
 // A report that references images stored somewhere else is a report that shows
 // broken pictures the moment anyone downloads it. Copy everything it points at
@@ -314,7 +329,9 @@ for (const entry of [...added, ...changed]) {
 }
 
 if (failures.length) {
-  console.log(`\n${failures.length} story(ies) never rendered: ${failures.slice(0, 10).join(', ')}${failures.length > 10 ? ', …' : ''}`);
+  console.log(`\n${failures.length} story(ies) never rendered:`);
+  for (const f of failures.slice(0, 10)) console.log(`  ${f.id} — ${f.reason}`);
+  if (failures.length > 10) console.log(`  …and ${failures.length - 10} more`);
 }
 
 // Publish the images before anything claims they exist. A run that reports a
@@ -349,8 +366,10 @@ if (accepted.length || (acceptAll && removed.length)) {
 console.log(`\n${added.length} added · ${changed.length} changed · ${removed.length} removed`);
 console.log(`Report: ${path.join(store.describe(), 'report', RUN_ID, 'index.html')}`);
 
+// A story that would not render is a failure of the gate, not a footnote.
+// Leaving it out of the exit code is how a run goes green over a blank page.
 const dirty = added.length + changed.length + removed.length;
-process.exit(dirty && !acceptAll ? 1 : 0);
+process.exit((dirty && !acceptAll) || failures.length ? 1 : 0);
 
 function sortKeys(obj) {
   return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));

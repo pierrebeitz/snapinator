@@ -8,8 +8,8 @@
 // works from a bucket, a downloaded artifact, or a laptop with no network.
 const img = (hash) => `img/${hash}.png`;
 
-export function renderReport({ runId, total, added, changed, removed }) {
-  const dirty = added.length + changed.length + removed.length;
+export function renderReport({ runId, total, added, changed, removed, failures = [] }) {
+  const dirty = added.length + changed.length + removed.length + failures.length;
   const ids = [...added, ...changed].map((e) => e.id);
 
   return `<!doctype html>
@@ -55,6 +55,7 @@ ${dirty ? `<div class="approve">
 ${changed.map(changedCard).join('\n')}
 ${added.map(addedCard).join('\n')}
 ${removed.map(removedCard).join('\n')}
+${failures.map(failedCard).join('\n')}
 ${dirty ? '' : '<p class="empty">Every story matched its baseline byte for byte.</p>'}
 </main>
 `;
@@ -77,6 +78,11 @@ const addedCard = ({ id, hash }) => `<section class="story">
   <div class="frames">
     <figure><figcaption>current · ${hash.slice(0, 12)}</figcaption><img src="${img(hash)}" alt="current"></figure>
   </div>
+</section>`;
+
+const failedCard = ({ id, reason }) => `<section class="story">
+  <h2>${id}<span class="tag removed">did not render</span></h2>
+  <div class="frames"><figure><p class="sub">${reason}</p></figure></div>
 </section>`;
 
 const removedCard = (id) => `<section class="story">

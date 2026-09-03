@@ -46,10 +46,10 @@ function body() {
 No report was produced. The [workflow log](${runUrl}) has the details.`;
   }
 
-  const { runId, total, added, changed, removed } = summary;
+  const { runId, total, added, changed, removed, failures = [] } = summary;
   const moved = [...changed, ...added];
 
-  if (!moved.length && !removed.length) {
+  if (!moved.length && !removed.length && !failures.length) {
     return `### No visual changes
 
 All ${total} stories match their baseline, pixel for pixel.`;
@@ -60,6 +60,7 @@ All ${total} stories match their baseline, pixel for pixel.`;
     changed.length && `${changed.length} changed`,
     added.length && `${added.length} new`,
     removed.length && `${removed.length} removed`,
+    failures.length && `${failures.length} did not render`,
   ].filter(Boolean).join(' · ');
 
   const shown = moved.slice(0, INLINE_LIMIT);
@@ -79,6 +80,11 @@ All ${total} stories match their baseline, pixel for pixel.`;
     gallery,
     rest > 0 && !noImages ? `\n_${rest} more not shown — [see the full report](${report})._` : null,
     removed.length ? `\nGone from the build: ${removed.map((id) => `\`${id}\``).join(', ')}` : null,
+    failures.length
+      ? `\n**Did not render** — these have no pixels to judge, so nothing is protecting them:\n${
+          failures.map((f) => `- \`${f.id}\` — ${f.reason}`).join('\n')
+        }`
+      : null,
     '',
     '---',
     '',
@@ -138,7 +144,10 @@ if (!list.ok) throw new Error(`Listing comments failed: ${list.status} ${await l
 
 // One comment per pull request, edited in place — a run that moves eight
 // stories should not produce eight notifications.
-const existing = (await list.json()).find((c) => c.body?.startsWith(MARKER));
+// `last`, not `first`: the approve workflow reads the run id from the last
+// marker comment, and editing a different one than it reads means approving a
+// stale run's hashes.
+const existing = (await list.json()).filter((c) => c.body?.startsWith(MARKER)).pop();
 
 const res = existing
   ? await api(`/repos/${repo}/issues/comments/${existing.id}`, { method: 'PATCH', body: JSON.stringify({ body: text }) })

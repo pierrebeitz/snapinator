@@ -46,8 +46,15 @@ function s3Store(base) {
       try {
         aws(['s3', 'cp', at(key), dest]);
         return true;
-      } catch {
-        return false; // No such baseline. A new story, or a manifest ahead of the store.
+      } catch (error) {
+        // Only a missing object means "no such baseline". Swallowing every
+        // failure turns an expired role or a wrong region into a confident,
+        // specific, wrong diagnosis — the report tells the reader a baseline
+        // was never uploaded and points them at history instead of at
+        // credentials.
+        const stderr = String(error.stderr ?? '');
+        if (/Not Found|does not exist|NoSuchKey|404/i.test(stderr)) return false;
+        throw new Error(`Reading ${at(key)} failed: ${stderr.trim() || error.message}`);
       }
     },
     publish(dir, prefix) {

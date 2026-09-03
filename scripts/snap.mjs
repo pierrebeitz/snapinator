@@ -28,6 +28,9 @@ const WORKERS = Number(process.env.SNAPMATIC_WORKERS || 4);
 const FREEZE = process.env.SNAPMATIC_FREEZE !== '0';
 // How long the DOM must hold still before the shot counts as settled.
 const SETTLE_MS = Number(process.env.SNAPMATIC_SETTLE_MS || 250);
+// Stories known to disagree with themselves. Kept in a file rather than a
+// code constant so the list is visible in review and shrinks under pressure.
+const QUARANTINE = process.env.SNAPMATIC_QUARANTINE || '';
 const MANIFEST = process.env.SNAPMATIC_MANIFEST || 'snapshots.json';
 const WORK = '.snapmatic/run';
 const VIEWPORT = { width: 1280, height: 720 };
@@ -241,8 +244,11 @@ const reportDir = path.join(WORK, 'report');
 for (const d of [shotDir, blobDir, reportDir]) fs.mkdirSync(d, { recursive: true });
 
 const index = read(path.join(STATIC, 'index.json'), { entries: {} });
-const stories = Object.values(index.entries).filter((e) => e.type === 'story').sort((a, b) => a.id.localeCompare(b.id));
-console.log(`Capturing ${stories.length} stories`);
+const quarantined = new Set(QUARANTINE && fs.existsSync(QUARANTINE) ? JSON.parse(fs.readFileSync(QUARANTINE, 'utf8')) : []);
+const stories = Object.values(index.entries)
+  .filter((e) => e.type === 'story' && !quarantined.has(e.id))
+  .sort((a, b) => a.id.localeCompare(b.id));
+console.log(`Capturing ${stories.length} stories${quarantined.size ? ` (${quarantined.size} quarantined)` : ''}`);
 
 const { server, port } = await serve(STATIC);
 const shots = await capture(port, stories, shotDir);
@@ -258,7 +264,7 @@ for (const [id, hash] of Object.entries(shots)) {
   if (!(id in baseline)) added.push({ id, hash });
   else if (baseline[id] !== hash) changed.push({ id, hash, was: baseline[id] });
 }
-const removed = Object.keys(baseline).filter((id) => !(id in shots));
+const removed = Object.keys(baseline).filter((id) => !(id in shots) && !quarantined.has(id));
 
 // Stage the blobs worth keeping: everything new, plus every diff.
 for (const { id, hash } of [...added, ...changed]) {

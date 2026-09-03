@@ -55,9 +55,11 @@ using GitHub's own web editor:
 1. Open `src/components/Button.jsx` on github.com, click the pencil, change
    `#2b6cb0` to `#7c3aed`.
 2. **Commit changes…** → *Create a new branch and start a pull request*.
-3. Wait about three minutes. A comment appears on the pull request with
+3. Wait about two minutes. A comment appears on the pull request with
    **before, after, and a diff image, rendered inline** — no link to follow, no
-   report to open, no tool to install.
+   report to open, no tool to install. The captures are cropped to what the
+   story actually drew, so a button reads as a button rather than a speck in an
+   empty frame.
 4. It shows three stories, not one, because `Card` renders `Button`. Seeing the
    blast radius is the entire point.
 5. If it looks right: comment `/approve-visual`. A bot commits the new hashes to
@@ -126,16 +128,38 @@ Report: .snapmatic/selfcheck/store/report/2026-09-03T17-35-17-289Z/index.html
 The default store is a local directory, so all of that runs offline. Point
 `SNAPMATIC_STORE` at a bucket and nothing else changes.
 
-## Wiring it to S3
+## Where the images live
+
+Inline images are the whole experience, and they set one hard requirement:
+**the images must be readable without authentication.** GitHub renders a
+comment's images through its own proxy, which fetches them anonymously — a URL
+that needs a login renders as nothing. (Data URIs do not help: GitHub's
+sanitiser strips `src` off them. Chromatic has the same constraint; they just
+own the CDN.)
+
+Two ways to satisfy it.
+
+### GitHub Pages — no infrastructure
+
+What this repository uses. The store is an orphan branch, `visual-store`,
+served by Pages. Each run clones it for the baselines it needs to diff against,
+pushes the new blobs back, and waits for Pages to serve them before the comment
+links to them — GitHub's proxy caches a 404 as eagerly as it caches an image.
 
 ```bash
-export SNAPMATIC_STORE="s3://my-bucket/visual"
-node scripts/snap.mjs
+git switch --orphan visual-store && touch .nojekyll && git commit -am init && git push -u origin visual-store
+gh api repos/OWNER/REPO/pages -X POST -f 'source[branch]=visual-store' -f 'source[path]=/'
+gh variable set SNAPMATIC_PUBLIC_URL --body https://OWNER.github.io/REPO
 ```
 
-The store shells out to the `aws` CLI, so it inherits whatever credentials the
-environment already has — in CI that's an OIDC role, no long-lived keys. Two
-repository variables and you're done:
+Costs nothing, needs no cloud account, and works on any public repository. The
+branch only grows by what actually changed, because the blobs are named after
+their own hashes.
+
+### S3 — for a private repository
+
+Pages on a private repo is auth-gated, so the proxy cannot read it. Use a bucket
+with public read on the prefix:
 
 | Variable | Example |
 | --- | --- |
@@ -144,7 +168,12 @@ repository variables and you're done:
 | `AWS_ROLE_ARN` | `arn:aws:iam::…:role/github-actions` |
 | `AWS_REGION` | `eu-central-1` |
 
-The bucket needs `PutObject` and `GetObject` on that prefix. Nothing else.
+Setting `SNAPMATIC_STORE` switches both workflows to S3 and skips the branch
+entirely. The store shells out to the `aws` CLI, so it inherits whatever
+credentials the environment has — in CI an OIDC role, no long-lived keys.
+
+Snapshots of UI components are usually not secret even when the code is, but
+that is a judgement call worth making deliberately rather than by default.
 
 ---
 

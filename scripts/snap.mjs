@@ -189,10 +189,16 @@ async function capture(port, stories, outDir, { workers = WORKERS, settleMs = SE
         // captures the same moment in the story's life.
         await page.waitForTimeout(settleMs);
 
-        // Render at the full viewport so layout is real, then crop to what the
-        // story actually drew. Shooting the whole frame makes a button 2% of a
-        // 1280x720 image, and in a three-column diff table that is a sliver
-        // nobody can review.
+        // Capture the whole document, then crop to what the story drew.
+        //
+        // Both halves matter. A clip alone is silently truncated at the
+        // viewport, so a story taller than 720px was only ever compared down
+        // to the fold — one story here is 1256px tall and 43% of it was
+        // uncovered. And `fullPage` alone frames a button in 1280px of empty
+        // white, which is unreadable in a three-column diff table.
+        //
+        // The box is measured in document coordinates, so it can extend past
+        // the fold; `fullPage` is what lets the clip follow it down there.
         const clip = await page.evaluate((pad) => {
           const root = document.querySelector('#storybook-root');
           if (!root) return null;
@@ -201,13 +207,15 @@ async function capture(port, stories, outDir, { workers = WORKERS, settleMs = SE
             .filter((r) => r.width > 0 && r.height > 0);
           if (!rects.length) return null;
 
-          const left = Math.max(0, Math.min(...rects.map((r) => r.left)) - pad);
-          const top = Math.max(0, Math.min(...rects.map((r) => r.top)) - pad);
-          const right = Math.min(window.innerWidth, Math.max(...rects.map((r) => r.right)) + pad);
-          const bottom = Math.min(window.innerHeight, Math.max(...rects.map((r) => r.bottom)) + pad);
+          const doc = document.documentElement;
+          const { scrollX, scrollY } = window;
+          const left = Math.max(0, Math.min(...rects.map((r) => r.left + scrollX)) - pad);
+          const top = Math.max(0, Math.min(...rects.map((r) => r.top + scrollY)) - pad);
+          const right = Math.min(doc.scrollWidth, Math.max(...rects.map((r) => r.right + scrollX)) + pad);
+          const bottom = Math.min(doc.scrollHeight, Math.max(...rects.map((r) => r.bottom + scrollY)) + pad);
 
-          // A story drawn entirely below the fold yields an empty box, and
-          // Playwright rejects a clip like that. Fall back to the frame.
+          // A story that drew nothing measurable leaves an empty box, and
+          // Playwright rejects a clip like that. Fall back to the whole page.
           if (right - left < 1 || bottom - top < 1) return null;
 
           return {
@@ -218,7 +226,7 @@ async function capture(port, stories, outDir, { workers = WORKERS, settleMs = SE
           };
         }, 12);
 
-        await page.screenshot({ path: file, animations: 'disabled', caret: 'hide', ...(clip ? { clip } : {}) });
+        await page.screenshot({ path: file, fullPage: true, animations: 'disabled', caret: 'hide', ...(clip ? { clip } : {}) });
         shots[story.id] = sha256(fs.readFileSync(file));
       } catch (error) {
         // Recorded, reported, and left out of the comparison entirely. A story

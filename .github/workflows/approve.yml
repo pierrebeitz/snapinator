@@ -15,6 +15,7 @@ permissions:
   pull-requests: write
   id-token: write
   actions: read # to pull the report artifact when there is no bucket
+  statuses: write # to settle the check on the commit this makes
 
 jobs:
   approve:
@@ -97,6 +98,7 @@ jobs:
           node scripts/accept.mjs "${{ steps.run.outputs.id }}" $ids
 
       - name: Commit
+        id: commit
         env:
           APPROVER: ${{ github.event.comment.user.login }}
         run: |
@@ -109,3 +111,24 @@ jobs:
           git add snapshots.json
           git commit -m "chore(visual): accept baselines approved by @${APPROVER}"
           git push
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # A push made with GITHUB_TOKEN deliberately does not start a workflow, so
+      # the new commit would sit at `action_required` forever and block the
+      # merge. Settle the check here: the manifest was written from the hashes
+      # of the run a human just looked at, so re-capturing could only introduce
+      # a disagreement with what they approved.
+      #
+      # Push with a PAT or a GitHub App token instead if you would rather have
+      # a genuine second run.
+      - name: Settle the check on the new commit
+        if: steps.commit.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPROVER: ${{ github.event.comment.user.login }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${{ steps.commit.outputs.sha }}" \
+            -f state=success \
+            -f context="Visual" \
+            -f description="Baselines approved by @${APPROVER}" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"

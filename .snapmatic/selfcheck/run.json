@@ -1,0 +1,32 @@
+{
+  "runId": "2026-09-03T22-11-48-085Z",
+  "total": 8,
+  "added": [],
+  "changed": [
+    {
+      "id": "button--primary",
+      "hash": "572ab3a89967bd8466a0722ebd6d1f305148af5f5db083bfda4bff05401febc7",
+      "was": "945f4be4a59a47b9bac522ba39f85181d3cce3453c37786f059b71b838907bcc",
+      "diff": "9e9ff99359fd78be9ae3a1be4417e7815f4d4b551a08325fc9ae671f4e9e9bc8",
+      "pixels": 4182
+    },
+    {
+      "id": "card--with-tone",
+      "hash": "65960e3cbbf54edb250faae4c3e5b89d913b69df0704fc746621d96bed07fb56",
+      "was": "326bedc2814bac61f14b4f5fa53cef9319b247f4773b3e7d5b5cd9b5e6fdd64c",
+      "diff": "3ee84e419d74da8f296f60dd12a27b62ed82dd0e95b267add1f2da2c0bddf64a",
+      "pixels": 2288
+    },
+    {
+      "id": "card--default",
+      "hash": "db3ee9c78943a286c69c7e4bb6990f4d4bae4f9cfe5506b9be09a2e99a125f46",
+      "was": "0a2f73c1d11a61ab614261edc99d2f90f85e7864d4fb8a2a8a956065b1fcfb2e",
+      "diff": "644395529410520fdc14170cc251f9a9423d8e3b5878cc202572d1c7f38e2ca4",
+      "pixels": 2288
+    }
+  ],
+  "removed": [],
+  "failures": [],
+  "unmoved": 0,
+  "published": true
+}

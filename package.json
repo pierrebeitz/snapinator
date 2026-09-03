@@ -1,5 +1,5 @@
 {
-  "name": "snapmatic",
+  "name": "snapinator",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,8 @@
     "snap": "node scripts/snap.mjs",
     "snap:accept": "node scripts/snap.mjs --accept",
     "snap:docker": "scripts/snap-docker.sh",
-    "selfcheck": "scripts/selfcheck.sh"
+    "selfcheck": "scripts/selfcheck.sh",
+    "bootstrap": "node scripts/bootstrap.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",

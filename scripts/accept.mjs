@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { openStore } from './store.mjs';
 
-const MANIFEST = process.env.SNAPMATIC_MANIFEST || 'snapshots.json';
+const MANIFEST = process.env.SNAPINATOR_MANIFEST || 'snapshots.json';
 const [runId, ...only] = process.argv.slice(2);
 
 if (!runId) {
@@ -24,7 +24,7 @@ if (!runId) {
 }
 
 const store = openStore();
-const summaryPath = path.join('.snapmatic', 'accept', 'summary.json');
+const summaryPath = path.join('.snapinator', 'accept', 'summary.json');
 if (!store.fetch(`report/${runId}/summary.json`, summaryPath)) {
   console.error(`No run \`${runId}\` in ${store.describe()}.`);
   process.exit(2);

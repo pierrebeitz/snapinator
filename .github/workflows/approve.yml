@@ -55,17 +55,17 @@ jobs:
           # comment it edits in place. Read it back from there rather than
           # keeping state anywhere else.
           gh api "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.issue.number }}/comments" \
-            --jq 'map(select(.body | startswith("<!-- snapmatic"))) | last.body' \
+            --jq 'map(select(.body | startswith("<!-- snapinator"))) | last.body' \
             | head -1 | grep -oE 'run=[^ ]+' | cut -d= -f2 \
             | sed 's/^/id=/' >> "$GITHUB_OUTPUT"
-          grep -q 'id=' "$GITHUB_OUTPUT" || { echo "No snapmatic comment to approve."; exit 1; }
+          grep -q 'id=' "$GITHUB_OUTPUT" || { echo "No snapinator comment to approve."; exit 1; }
 
       - uses: actions/setup-node@v6
         with:
           node-version: 22
 
       - uses: aws-actions/configure-aws-credentials@v6
-        if: vars.SNAPMATIC_STORE != ''
+        if: vars.SNAPINATOR_STORE != ''
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -74,18 +74,18 @@ jobs:
       # published this run's summary there. Clone it and accept.mjs cannot tell
       # the difference between that and S3.
       - name: Check out the snapshot store
-        if: vars.SNAPMATIC_STORE == ''
+        if: vars.SNAPINATOR_STORE == ''
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git clone --quiet --depth 1 --branch visual-store \
-            "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .snapmatic/store
+            "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .snapinator/store
 
       # No Storybook build and no browser: the pixels are already in the store
       # under their content hash, so this is a manifest edit and nothing more.
       - name: Move the baseline
         env:
-          SNAPMATIC_STORE: ${{ vars.SNAPMATIC_STORE }}
+          SNAPINATOR_STORE: ${{ vars.SNAPINATOR_STORE }}
           COMMENT: ${{ github.event.comment.body }}
         run: |
           # `cut -f2-` would hand back the whole line when there is no space,

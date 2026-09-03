@@ -15,7 +15,7 @@ export function renderReport({ runId, total, added, changed, removed, failures =
   return `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>snapmatic · ${runId}</title>
+<title>snapinator · ${runId}</title>
 <style>
   :root { color-scheme: light dark; --bg:#fff; --fg:#1a1a1a; --muted:#5a6472; --line:#e2e8f0; --card:#fff; --accent:#2b6cb0; }
   @media (prefers-color-scheme: dark) { :root { --bg:#0f1319; --fg:#e6eaf0; --muted:#8b97a8; --line:#252c38; --card:#161b23; } }

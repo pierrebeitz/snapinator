@@ -1,0 +1,10 @@
+{
+  "badge--neutral": "c7e64e151b9592037afcde1ba1c2b5db33651519ec838ccdf7deb1f08b4bc223",
+  "badge--success": "b160e2fed9df5d76b12e4e2ef00eea16d40d5de4661f405c363a764ffaea45aa",
+  "badge--warning": "d680387b528c3b848076188d3ded9edd8082f20889f31c73df104ac28a73b3fd",
+  "button--danger": "e5ce4505d9d1b5f9ea9afcfbaf3dc92b3ad6bad0f876901d30d68272b8490ddf",
+  "button--primary": "572ab3a89967bd8466a0722ebd6d1f305148af5f5db083bfda4bff05401febc7",
+  "button--secondary": "2f76f8f17bdd5cb0b4fa9c879376164b57ff0971fdb0cb49777a6fa0cb8fa9a9",
+  "card--default": "db3ee9c78943a286c69c7e4bb6990f4d4bae4f9cfe5506b9be09a2e99a125f46",
+  "card--with-tone": "65960e3cbbf54edb250faae4c3e5b89d913b69df0704fc746621d96bed07fb56"
+}

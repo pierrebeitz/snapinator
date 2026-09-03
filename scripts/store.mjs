@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 
-export function openStore(spec = process.env.SNAPMATIC_STORE || '.snapmatic/store') {
+export function openStore(spec = process.env.SNAPINATOR_STORE || '.snapinator/store') {
   return spec.startsWith('s3://') ? s3Store(spec) : localStore(spec);
 }
 

@@ -18,12 +18,12 @@ import fs from 'node:fs';
 // The marker both identifies the comment to edit and carries the run id, so
 // the approve workflow can find the run without parsing a URL that may not be
 // there. Anything downstream matches on the prefix, never the whole line.
-const MARKER = '<!-- snapmatic';
-const SUMMARY = '.snapmatic/run/report/summary.json';
+const MARKER = '<!-- snapinator';
+const SUMMARY = '.snapinator/run/report/summary.json';
 const INLINE_LIMIT = 8; // Past this the comment is a scroll wall; link out instead.
 
 const pr = process.argv[2];
-const publicUrl = process.env.SNAPMATIC_PUBLIC_URL ?? '';
+const publicUrl = process.env.SNAPINATOR_PUBLIC_URL ?? '';
 const runUrl = process.env.RUN_URL ?? '';
 
 const img = (hash) => `${publicUrl}/img/${hash}.png`;
@@ -70,7 +70,7 @@ All ${total} stories match their baseline, pixel for pixel.`;
     ? `${moved.map((e) => `- \`${e.id}\`${e.was ? '' : ' — new story'}`).join('\n')}
 
 > The images are in the **report** artifact on [the run](${runUrl}). Set the
-> \`SNAPMATIC_PUBLIC_URL\` repository variable to a bucket or CDN and they show
+> \`SNAPINATOR_PUBLIC_URL\` repository variable to a bucket or CDN and they show
 > up inline here instead.`
     : shown.map(card).join('\n\n');
 

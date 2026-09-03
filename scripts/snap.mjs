@@ -20,21 +20,21 @@ import { PNG } from 'pngjs';
 import { renderReport } from './report.mjs';
 import { openStore } from './store.mjs';
 
-const STATIC = process.env.SNAPMATIC_STATIC || 'storybook-static';
-const WORKERS = Number(process.env.SNAPMATIC_WORKERS || 4);
+const STATIC = process.env.SNAPINATOR_STATIC || 'storybook-static';
+const WORKERS = Number(process.env.SNAPINATOR_WORKERS || 4);
 // Frozen clock and seeded randomness. A story that renders "2 minutes ago" or
 // a uuid is a story that differs on every run, and one flaky story teaches a
 // team to ignore the whole check.
-const FREEZE = process.env.SNAPMATIC_FREEZE !== '0';
+const FREEZE = process.env.SNAPINATOR_FREEZE !== '0';
 // How long the DOM must hold still before the shot counts as settled.
-const SETTLE_MS = Number(process.env.SNAPMATIC_SETTLE_MS || 250);
+const SETTLE_MS = Number(process.env.SNAPINATOR_SETTLE_MS || 250);
 // Stories known to disagree with themselves. Kept in a file rather than a
 // code constant so the list is visible in review and shrinks under pressure.
-const QUARANTINE = process.env.SNAPMATIC_QUARANTINE || '';
-const MANIFEST = process.env.SNAPMATIC_MANIFEST || 'snapshots.json';
-const WORK = '.snapmatic/run';
+const QUARANTINE = process.env.SNAPINATOR_QUARANTINE || '';
+const MANIFEST = process.env.SNAPINATOR_MANIFEST || 'snapshots.json';
+const WORK = '.snapinator/run';
 const VIEWPORT = { width: 1280, height: 720 };
-const RUN_ID = process.env.SNAPMATIC_RUN_ID || new Date().toISOString().replace(/[:.]/g, '-');
+const RUN_ID = process.env.SNAPINATOR_RUN_ID || new Date().toISOString().replace(/[:.]/g, '-');
 
 const args = process.argv.slice(2);
 const acceptArg = args.find((a) => a === '--accept' || a.startsWith('--accept='));
@@ -97,6 +97,44 @@ function serve(root) {
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
   });
+}
+
+/* --------------------------------------------------------------- opt-outs */
+
+// Stories the suite itself declares un-snapshottable, via Chromatic's
+// `disableSnapshot` parameter. Storybook's index.json carries no parameters, so
+// the only place to read them is the running preview — which resolves all of
+// them in well under a second, without rendering anything.
+//
+// Reading the declaration beats rediscovering it: these are the animated and
+// mid-flight stories a team has already ruled out, and a tool that quarantines
+// them by observation is both slower and less honest about why.
+async function readOptOuts(port, ids) {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${port}/iframe.html?viewMode=story&id=${encodeURIComponent(ids[0])}`, { waitUntil: 'load' });
+    await page.waitForFunction(() => !!window.__STORYBOOK_PREVIEW__?.storyStore, null, { timeout: 15_000 });
+
+    return await page.evaluate(async (storyIds) => {
+      const store = window.__STORYBOOK_PREVIEW__.storyStore;
+      const out = [];
+      for (const id of storyIds) {
+        try {
+          const story = await store.loadStory({ storyId: id });
+          if (story?.parameters?.chromatic?.disableSnapshot) out.push(id);
+        } catch {
+          // A story that will not load is the capture's problem to report.
+        }
+      }
+      return out;
+    }, ids);
+  } catch (error) {
+    console.error(`Could not read story parameters (${error.message}); no opt-outs applied.`);
+    return [];
+  } finally {
+    await browser.close();
+  }
 }
 
 /* ---------------------------------------------------------------- capture */
@@ -260,10 +298,16 @@ const quarantined = new Set(QUARANTINE && fs.existsSync(QUARANTINE) ? JSON.parse
 const stories = Object.values(index.entries)
   .filter((e) => e.type === 'story' && !quarantined.has(e.id))
   .sort((a, b) => a.id.localeCompare(b.id));
-console.log(`Capturing ${stories.length} stories${quarantined.size ? ` (${quarantined.size} quarantined)` : ''}`);
+
 
 const { server, port } = await serve(STATIC);
-const shots = await capture(port, stories, shotDir);
+
+const optedOut = new Set(stories.length ? await readOptOuts(port, stories.map((s) => s.id)) : []);
+const toCapture = stories.filter((s) => !optedOut.has(s.id));
+if (optedOut.size) console.log(`${optedOut.size} opted out with chromatic.disableSnapshot`);
+
+console.log(`Capturing ${toCapture.length} stories${quarantined.size ? `, ${quarantined.size} quarantined` : ''}`);
+const shots = await capture(port, toCapture, shotDir);
 server.close();
 
 const baseline = read(MANIFEST, {});
@@ -276,7 +320,7 @@ for (const [id, hash] of Object.entries(shots)) {
   if (!(id in baseline)) added.push({ id, hash });
   else if (baseline[id] !== hash) changed.push({ id, hash, was: baseline[id] });
 }
-const removed = Object.keys(baseline).filter((id) => !(id in shots) && !quarantined.has(id));
+const removed = Object.keys(baseline).filter((id) => !(id in shots) && !quarantined.has(id) && !optedOut.has(id));
 
 // Stage every image captured, not only the ones that moved. Sync skips what
 // the store already holds, so the extra cost is a local copy — and it makes the

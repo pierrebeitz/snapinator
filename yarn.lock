@@ -2511,9 +2511,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"snapmatic@workspace:.":
+"snapinator@workspace:.":
   version: 0.0.0-use.local
-  resolution: "snapmatic@workspace:."
+  resolution: "snapinator@workspace:."
   dependencies:
     "@storybook/react-vite": "npm:^10.5.10"
     "@vitejs/plugin-react": "npm:^5.1.0"

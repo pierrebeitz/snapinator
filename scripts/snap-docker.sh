@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 # shows up as a container that cannot launch.
 version=$(node -e "process.stdout.write(require('playwright/package.json').version)")
 image="mcr.microsoft.com/playwright:v${version}-noble"
-work=".snapmatic/determinism"
+work=".snapinator/determinism"
 
 # CI pins the same tag as a literal string, which nothing can resolve for it.
 # Catch the drift here, once, instead of in a red build.
@@ -25,7 +25,7 @@ if [[ "$pinned" != "$image" ]]; then
   exit 1
 fi
 
-[[ -f "${SNAPMATIC_STATIC:-storybook-static}/index.json" ]] || yarn build-storybook
+[[ -f "${SNAPINATOR_STATIC:-storybook-static}/index.json" ]] || yarn build-storybook
 
 capture() {
   docker run --rm \
@@ -33,19 +33,19 @@ capture() {
     -v "$PWD:/w" -w /w \
     -e HOME=/tmp \
     -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    -e SNAPMATIC_MANIFEST="$1" \
-    -e SNAPMATIC_STORE="$2" \
-    -e SNAPMATIC_RUN_ID="$3" \
-    -e SNAPMATIC_STATIC="${SNAPMATIC_STATIC:-storybook-static}" \
-    -e SNAPMATIC_WORKERS="${SNAPMATIC_WORKERS:-4}" \
-    -e SNAPMATIC_FREEZE="${SNAPMATIC_FREEZE:-1}" \
+    -e SNAPINATOR_MANIFEST="$1" \
+    -e SNAPINATOR_STORE="$2" \
+    -e SNAPINATOR_RUN_ID="$3" \
+    -e SNAPINATOR_STATIC="${SNAPINATOR_STATIC:-storybook-static}" \
+    -e SNAPINATOR_WORKERS="${SNAPINATOR_WORKERS:-4}" \
+    -e SNAPINATOR_FREEZE="${SNAPINATOR_FREEZE:-1}" \
     "$image" node scripts/snap.mjs "${4:-}"
 }
 
 # `accept` is the only sanctioned way to write a baseline: one pass, in the
 # container, straight into the committed manifest.
 if [[ "${1:-}" == "accept" ]]; then
-  capture "${SNAPMATIC_MANIFEST:-snapshots.json}" "${SNAPMATIC_STORE:-.snapmatic/store}" "seed-$(date +%s)" --accept
+  capture "${SNAPINATOR_MANIFEST:-snapshots.json}" "${SNAPINATOR_STORE:-.snapinator/store}" "seed-$(date +%s)" --accept
   exit
 fi
 

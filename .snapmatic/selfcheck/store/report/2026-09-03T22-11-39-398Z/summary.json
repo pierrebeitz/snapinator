@@ -1,0 +1,43 @@
+{
+  "runId": "2026-09-03T22-11-39-398Z",
+  "total": 8,
+  "added": [
+    {
+      "id": "badge--warning",
+      "hash": "d680387b528c3b848076188d3ded9edd8082f20889f31c73df104ac28a73b3fd"
+    },
+    {
+      "id": "badge--success",
+      "hash": "b160e2fed9df5d76b12e4e2ef00eea16d40d5de4661f405c363a764ffaea45aa"
+    },
+    {
+      "id": "button--danger",
+      "hash": "e5ce4505d9d1b5f9ea9afcfbaf3dc92b3ad6bad0f876901d30d68272b8490ddf"
+    },
+    {
+      "id": "badge--neutral",
+      "hash": "c7e64e151b9592037afcde1ba1c2b5db33651519ec838ccdf7deb1f08b4bc223"
+    },
+    {
+      "id": "card--default",
+      "hash": "0a2f73c1d11a61ab614261edc99d2f90f85e7864d4fb8a2a8a956065b1fcfb2e"
+    },
+    {
+      "id": "button--secondary",
+      "hash": "2f76f8f17bdd5cb0b4fa9c879376164b57ff0971fdb0cb49777a6fa0cb8fa9a9"
+    },
+    {
+      "id": "button--primary",
+      "hash": "945f4be4a59a47b9bac522ba39f85181d3cce3453c37786f059b71b838907bcc"
+    },
+    {
+      "id": "card--with-tone",
+      "hash": "326bedc2814bac61f14b4f5fa53cef9319b247f4773b3e7d5b5cd9b5e6fdd64c"
+    }
+  ],
+  "changed": [],
+  "removed": [],
+  "failures": [],
+  "unmoved": 0,
+  "published": true
+}

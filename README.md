@@ -1,4 +1,4 @@
-# snapmatic
+# snapinator
 
 Visual regression testing for Storybook, without the SaaS bill and without
 running a service.
@@ -122,11 +122,11 @@ blast radius is the reason to look at a report instead of trusting a changelog.
 
 ```
 3 snapshots moved
-Report: .snapmatic/selfcheck/store/report/2026-09-03T17-35-17-289Z/index.html
+Report: .snapinator/selfcheck/store/report/2026-09-03T17-35-17-289Z/index.html
 ```
 
 The default store is a local directory, so all of that runs offline. Point
-`SNAPMATIC_STORE` at a bucket and nothing else changes.
+`SNAPINATOR_STORE` at a bucket and nothing else changes.
 
 ## Where the images live
 
@@ -149,7 +149,7 @@ links to them — GitHub's proxy caches a 404 as eagerly as it caches an image.
 ```bash
 git switch --orphan visual-store && touch .nojekyll && git commit -am init && git push -u origin visual-store
 gh api repos/OWNER/REPO/pages -X POST -f 'source[branch]=visual-store' -f 'source[path]=/'
-gh variable set SNAPMATIC_PUBLIC_URL --body https://OWNER.github.io/REPO
+gh variable set SNAPINATOR_PUBLIC_URL --body https://OWNER.github.io/REPO
 ```
 
 Costs nothing, needs no cloud account, and works on any public repository. The
@@ -163,12 +163,12 @@ with public read on the prefix:
 
 | Variable | Example |
 | --- | --- |
-| `SNAPMATIC_STORE` | `s3://my-bucket/visual` |
-| `SNAPMATIC_PUBLIC_URL` | `https://d1234.cloudfront.net/visual` |
+| `SNAPINATOR_STORE` | `s3://my-bucket/visual` |
+| `SNAPINATOR_PUBLIC_URL` | `https://d1234.cloudfront.net/visual` |
 | `AWS_ROLE_ARN` | `arn:aws:iam::…:role/github-actions` |
 | `AWS_REGION` | `eu-central-1` |
 
-Setting `SNAPMATIC_STORE` switches both workflows to S3 and skips the branch
+Setting `SNAPINATOR_STORE` switches both workflows to S3 and skips the branch
 entirely. The store shells out to the `aws` CLI, so it inherits whatever
 credentials the environment has — in CI an OIDC role, no long-lived keys.
 

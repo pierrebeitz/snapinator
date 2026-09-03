@@ -9,9 +9,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-work=".snapmatic/selfcheck"
-export SNAPMATIC_MANIFEST="${work}/manifest.json"
-export SNAPMATIC_STORE="${work}/store"
+work=".snapinator/selfcheck"
+export SNAPINATOR_MANIFEST="${work}/manifest.json"
+export SNAPINATOR_STORE="${work}/store"
 
 restore() { git checkout -- src/components/Button.jsx 2>/dev/null || true; }
 trap restore EXIT
@@ -25,7 +25,7 @@ fail() { echo "✗ $1"; exit 1; }
 # gets string-compared, so write the raw bytes.
 emit() { node -e "process.stdout.write(String($1))"; }
 count() { emit "require('./${work}/run.json').$1.length"; }
-manifest_size() { emit "Object.keys(require('./${SNAPMATIC_MANIFEST}')).length"; }
+manifest_size() { emit "Object.keys(require('./${SNAPINATOR_MANIFEST}')).length"; }
 
 yarn build-storybook >/dev/null 2>&1
 
@@ -50,7 +50,7 @@ yarn build-storybook >/dev/null 2>&1
 
 echo "4. the change is caught, and so is its blast radius"
 node scripts/snap.mjs >/dev/null && fail "changed suite should exit 1"
-cp .snapmatic/run/report/summary.json "${work}/run.json"
+cp .snapinator/run/report/summary.json "${work}/run.json"
 [[ $(count changed) == 3 ]] || fail "expected 3 changed stories (button + the two cards that render it), got $(count changed)"
 run=$(emit "require('./${work}/run.json').runId")
 
@@ -66,7 +66,7 @@ node scripts/accept.mjs "$run" >/dev/null
 node scripts/snap.mjs >/dev/null || fail "everything is approved; should exit 0"
 
 echo "8. nothing was re-uploaded that already existed"
-blobs=$(find "${SNAPMATIC_STORE}/img" -name '*.png' | wc -l | tr -d ' ')
+blobs=$(find "${SNAPINATOR_STORE}/img" -name '*.png' | wc -l | tr -d ' ')
 [[ "$blobs" == 14 ]] || fail "expected 14 blobs (8 baseline + 3 changed + 3 diffs), got ${blobs}"
 
 echo

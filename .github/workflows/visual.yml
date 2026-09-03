@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write # to push new blobs to the store branch
   pull-requests: write
   id-token: write # OIDC into AWS; no long-lived keys
 
@@ -69,8 +69,12 @@ jobs:
           path: .snapmatic/run/report
           if-no-files-found: ignore
 
+      # A pull request from a fork gets a read-only token no matter what the
+      # permissions block says, so this cannot push and must not fail the run.
+      # Those PRs fall back to the report artifact.
       - name: Publish the store
         if: vars.SNAPMATIC_STORE == ''
+        continue-on-error: true
         working-directory: .snapmatic/store
         run: |
           git config user.name "github-actions[bot]"

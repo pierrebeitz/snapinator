@@ -30,7 +30,9 @@ const runUrl = process.env.RUN_URL ?? '';
 // configure rather than posting two dozen broken images.
 const noImages = !publicUrl;
 const img = (hash) => `${publicUrl}/img/${hash}.png`;
-const cell = (hash, label) => (hash ? `<img src="${img(hash)}" width="280" alt="${label}">` : '_none_');
+// No width attribute: the crops are already tight, so GitHub shows them at
+// natural size and only scales down when a cell is too narrow.
+const cell = (hash, label) => (hash ? `<img src="${img(hash)}" alt="${label}">` : '_none_');
 
 const summary = fs.existsSync(SUMMARY) ? JSON.parse(fs.readFileSync(SUMMARY, 'utf8')) : null;
 

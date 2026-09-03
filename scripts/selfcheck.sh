@@ -37,7 +37,15 @@ echo "2. a clean run is silent and exits 0"
 node scripts/snap.mjs >/dev/null || fail "unchanged suite should exit 0"
 
 echo "3. recolour the button"
-sed -i'' -e 's/#2b6cb0/#7c3aed/' src/components/Button.jsx
+# Swap for a colour that is definitely not the current one. Hard-coding the
+# "from" value made this silently pass on any branch that had already changed it.
+node -e "
+  const fs = require('fs'), file = 'src/components/Button.jsx';
+  const src = fs.readFileSync(file, 'utf8');
+  const [, current] = src.match(/primary: \{ background: '(#[0-9a-f]{6})'/);
+  const next = current === '#7c3aed' ? '#2f855a' : '#7c3aed';
+  fs.writeFileSync(file, src.replace(current, next));
+"
 yarn build-storybook >/dev/null 2>&1
 
 echo "4. the change is caught, and so is its blast radius"

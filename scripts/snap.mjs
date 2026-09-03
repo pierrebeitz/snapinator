@@ -84,16 +84,36 @@ async function capture(port, stories, outDir) {
     await page.evaluate(() => document.fonts.ready);
 
     const file = path.join(outDir, `${story.id}.png`);
-    // Shoot the story root, not the viewport: a button in a 1280x720 frame is
-    // 2% component and 98% white, and a reviewer has to zoom to see anything.
-    // A root with no box (an absolutely positioned story) falls back to the
-    // frame, which is still deterministic — just emptier.
-    const root = page.locator('#storybook-root');
-    const box = await root.boundingBox();
-    const target = box && box.width >= 1 && box.height >= 1 ? root : page;
+
+    // Render at the full viewport so layout is real, then crop to what the
+    // story actually drew. Shooting the whole frame makes a button 2% of a
+    // 1280x720 image, and in a three-column diff table that is a sliver nobody
+    // can review. Cropping to content keeps the picture legible while still
+    // catching a width regression — a component that goes full-bleed simply
+    // produces a much wider crop.
+    const clip = await page.evaluate((pad) => {
+      const root = document.querySelector('#storybook-root');
+      const rects = [...root.querySelectorAll('*')]
+        .map((el) => el.getBoundingClientRect())
+        .filter((r) => r.width > 0 && r.height > 0);
+      if (!rects.length) return null;
+
+      const left = Math.max(0, Math.min(...rects.map((r) => r.left)) - pad);
+      const top = Math.max(0, Math.min(...rects.map((r) => r.top)) - pad);
+      const right = Math.min(window.innerWidth, Math.max(...rects.map((r) => r.right)) + pad);
+      const bottom = Math.min(window.innerHeight, Math.max(...rects.map((r) => r.bottom)) + pad);
+
+      return {
+        x: Math.floor(left),
+        y: Math.floor(top),
+        width: Math.ceil(right - left),
+        height: Math.ceil(bottom - top),
+      };
+    }, 12);
+
     // ponytail: one page, one story at a time. Parallelise with N contexts
     // when the suite outgrows a couple of minutes.
-    await target.screenshot({ path: file, animations: 'disabled', caret: 'hide' });
+    await page.screenshot({ path: file, animations: 'disabled', caret: 'hide', ...(clip ? { clip } : {}) });
     shots[story.id] = sha256(fs.readFileSync(file));
     process.stdout.write(`  ${story.id}\n`);
   }

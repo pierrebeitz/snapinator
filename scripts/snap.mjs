@@ -26,6 +26,8 @@ const WORKERS = Number(process.env.SNAPMATIC_WORKERS || 4);
 // a uuid is a story that differs on every run, and one flaky story teaches a
 // team to ignore the whole check.
 const FREEZE = process.env.SNAPMATIC_FREEZE !== '0';
+// How long the DOM must hold still before the shot counts as settled.
+const SETTLE_MS = Number(process.env.SNAPMATIC_SETTLE_MS || 250);
 const MANIFEST = process.env.SNAPMATIC_MANIFEST || 'snapshots.json';
 const WORK = '.snapmatic/run';
 const VIEWPORT = { width: 1280, height: 720 };
@@ -55,6 +57,13 @@ const MIME = {
 
 // Applied before any story script runs.
 const DETERMINISM_SHIM = `
+  // Kill motion at the source. Playwright's \`animations: 'disabled'\` finishes
+  // CSS animations at screenshot time, which does nothing for a component that
+  // animates by re-rendering — a toast sliding in, a dialog scaling up.
+  const style = document.createElement('style');
+  style.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}';
+  (document.head || document.documentElement).appendChild(style);
+
   const FIXED = new Date('2026-01-01T12:00:00Z').getTime();
   const RealDate = Date;
   globalThis.Date = class extends RealDate {
@@ -121,6 +130,13 @@ async function capture(port, stories, outDir) {
           return root && root.childElementCount > 0;
         }, null, { timeout: 15_000 });
         await page.evaluate(() => document.fonts.ready);
+
+        // A fixed settle, not an adaptive one. Waiting for the DOM to hold
+        // still sounds better and measured worse: a story whose data lands in
+        // two bursts goes quiet in between, so the shot is taken at whichever
+        // burst the machine happened to be between. A fixed pause always
+        // captures the same moment in the story's life.
+        await page.waitForTimeout(SETTLE_MS);
       } catch {
         // A story that will not render is a finding, not a crash: record it as
         // an empty frame so the run reports it instead of dying on story 12 of

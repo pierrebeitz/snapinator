@@ -25,7 +25,7 @@ if [[ "$pinned" != "$image" ]]; then
   exit 1
 fi
 
-[[ -f storybook-static/index.json ]] || yarn build-storybook
+[[ -f "${SNAPMATIC_STATIC:-storybook-static}/index.json" ]] || yarn build-storybook
 
 capture() {
   docker run --rm \
@@ -36,6 +36,9 @@ capture() {
     -e SNAPMATIC_MANIFEST="$1" \
     -e SNAPMATIC_STORE="$2" \
     -e SNAPMATIC_RUN_ID="$3" \
+    -e SNAPMATIC_STATIC="${SNAPMATIC_STATIC:-storybook-static}" \
+    -e SNAPMATIC_WORKERS="${SNAPMATIC_WORKERS:-4}" \
+    -e SNAPMATIC_FREEZE="${SNAPMATIC_FREEZE:-1}" \
     "$image" node scripts/snap.mjs "${4:-}"
 }
 

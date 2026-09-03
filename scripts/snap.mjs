@@ -310,7 +310,6 @@ const stories = Object.values(index.entries)
   .filter((e) => e.type === 'story' && !quarantined.has(e.id))
   .sort((a, b) => a.id.localeCompare(b.id));
 
-
 const { server, port } = await serve(STATIC);
 
 const optedOut = new Set(stories.length ? await readOptOuts(port, stories.map((s) => s.id)) : []);
@@ -332,14 +331,9 @@ for (const [id, hash] of Object.entries(shots)) {
 }
 const removed = Object.keys(baseline).filter((id) => !(id in shots) && !quarantined.has(id) && !optedOut.has(id));
 
-// Stage every image captured, not only the ones that moved. Sync skips what
-// the store already holds, so the extra cost is a local copy — and it makes the
-// store self-healing. Staging only the changes means a run whose upload failed
-// leaves those baselines missing from the store forever: nothing re-uploads
-// them, and every later diff for those stories shows a broken "before".
-for (const [id, hash] of Object.entries(shots)) {
-  fs.copyFileSync(path.join(shotDir, `${id}.png`), path.join(blobDir, `${hash}.png`));
-}
+// Where each story's final image lives on disk. Only a confirmed blip moves.
+const source = Object.fromEntries(Object.keys(shots).map((id) => [id, path.join(shotDir, `${id}.png`)]));
+
 // A story that disagrees under load and agrees when asked again was never
 // disagreeing about anything. Capture the handful that moved a second time,
 // alone and with a longer pause, and keep only the ones that still differ.
@@ -365,6 +359,11 @@ if (changed.length && changed.length <= RETRY_LIMIT) {
   for (const blip of blips) {
     changed.splice(changed.indexOf(blip), 1);
     shots[blip.id] = blip.was; // it matches the baseline; leave the manifest alone
+    // And stage the retry's image, not the first capture's. They hash
+    // differently by definition, so copying the first one under the baseline's
+    // name would file the wrong pixels under that hash and quietly corrupt
+    // every future comparison against it.
+    source[blip.id] = path.join(retryDir, `${blip.id}.png`);
   }
   if (blips.length) {
     console.log(`${blips.length} did not reproduce and were dropped: ${blips.map((b) => b.id).join(', ')}`);
@@ -372,6 +371,17 @@ if (changed.length && changed.length <= RETRY_LIMIT) {
 }
 
 server.close();
+
+// Stage every image captured, not only the ones that moved. Sync skips what
+// the store already holds, so the extra cost is a local copy — and it makes the
+// store self-healing. Staging only the changes means a run whose upload failed
+// leaves those baselines missing from the store forever: nothing re-uploads
+// them, and every later diff for those stories shows a broken "before".
+//
+// After confirmation, so a change that did not reproduce leaves no orphan.
+for (const [id, hash] of Object.entries(shots)) {
+  if (fs.existsSync(source[id])) fs.copyFileSync(source[id], path.join(blobDir, `${hash}.png`));
+}
 
 let storeUnreadable = null;
 for (const entry of changed) {

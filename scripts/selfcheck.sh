@@ -69,5 +69,16 @@ echo "8. nothing was re-uploaded that already existed"
 blobs=$(find "${SNAPINATOR_STORE}/img" -name '*.png' | wc -l | tr -d ' ')
 [[ "$blobs" == 14 ]] || fail "expected 14 blobs (8 baseline + 3 changed + 3 diffs), got ${blobs}"
 
+echo "9. every blob in the store is named after its own contents"
+node -e "
+  const fs = require('fs'), crypto = require('crypto');
+  const dir = '${SNAPINATOR_STORE}/img';
+  const bad = fs.readdirSync(dir).filter((f) => {
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(dir + '/' + f)).digest('hex');
+    return hash + '.png' !== f;
+  });
+  if (bad.length) { console.error('name does not match contents: ' + bad.join(', ')); process.exit(1); }
+" || fail "a blob is filed under the wrong hash — every comparison against it would be wrong"
+
 echo
 echo "✓ All checks passed."

@@ -14,7 +14,6 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write
-  actions: read # to pull the report artifact when there is no bucket
   statuses: write # to settle the check on the commit this makes
 
 jobs:
@@ -71,17 +70,16 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      # Without a bucket the run's summary lives in the workflow artifact rather
-      # than a shared store. Drop it where a local store would have put it and
-      # the accept step cannot tell the difference.
-      - name: Fetch the run summary
+      # Without a bucket the store is the Pages branch, and snap.mjs already
+      # published this run's summary there. Clone it and accept.mjs cannot tell
+      # the difference between that and S3.
+      - name: Check out the snapshot store
         if: vars.SNAPMATIC_STORE == ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN: ${{ steps.run.outputs.id }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p ".snapmatic/store/report/${RUN}"
-          gh run download "${RUN%%-*}" -n report -D ".snapmatic/store/report/${RUN}"
+          git clone --quiet --depth 1 --branch visual-store \
+            "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .snapmatic/store
 
       # No Storybook build and no browser: the pixels are already in the store
       # under their content hash, so this is a manifest edit and nothing more.

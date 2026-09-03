@@ -33,7 +33,10 @@ jobs:
 
       - run: yarn build-storybook
 
+      # Skipped when the repository has no store configured, so a fresh clone
+      # still produces a report — as a workflow artifact instead of on S3.
       - uses: aws-actions/configure-aws-credentials@v6
+        if: vars.SNAPMATIC_STORE != ''
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -45,13 +48,20 @@ jobs:
           SNAPMATIC_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
         run: node scripts/snap.mjs
 
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: report
+          path: .snapmatic/run/report
+          if-no-files-found: ignore
+
       # The diff is rendered *into* the comment, not linked from it. Someone who
       # changed a colour in the GitHub web editor never has to leave the tab,
       # install anything, or know this tool exists.
       - name: Comment the report
         if: github.event_name == 'pull_request'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPORT_BASE: ${{ vars.SNAPMATIC_PUBLIC_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SNAPMATIC_PUBLIC_URL: ${{ vars.SNAPMATIC_PUBLIC_URL }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash .github/scripts/comment-report.sh ${{ github.event.pull_request.number }}
+        run: node scripts/pr-comment.mjs ${{ github.event.pull_request.number }}

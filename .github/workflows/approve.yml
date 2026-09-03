@@ -50,16 +50,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # The Visual workflow edits one comment in place, and it carries the
-          # report URL. Read the run id back out of it rather than tracking
-          # state anywhere else.
+          # The Visual workflow stamps its run id into the marker of the one
+          # comment it edits in place. Read it back from there rather than
+          # keeping state anywhere else.
           gh api "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.issue.number }}/comments" \
-            --jq 'map(select(.body | startswith("<!-- snapmatic -->"))) | last.body' \
-            | grep -oE 'report/[^/]+/index.html' | head -1 | cut -d/ -f2 \
+            --jq 'map(select(.body | startswith("<!-- snapmatic"))) | last.body' \
+            | head -1 | grep -oE 'run=[^ ]+' | cut -d= -f2 \
             | sed 's/^/id=/' >> "$GITHUB_OUTPUT"
+          grep -q 'id=' "$GITHUB_OUTPUT" || { echo "No snapmatic comment to approve."; exit 1; }
 
-      # accept.mjs touches nothing but node builtins and the aws CLI, so there
-      # is no install step here at all.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -68,6 +67,18 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+
+      # Without a bucket the run's summary lives in the workflow artifact rather
+      # than a shared store. Drop it where a local store would have put it and
+      # the accept step cannot tell the difference.
+      - name: Fetch the run summary
+        if: vars.SNAPMATIC_STORE == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN: ${{ steps.run.outputs.id }}
+        run: |
+          mkdir -p ".snapmatic/store/report/${RUN}"
+          gh run download "${RUN%%-*}" -n report -D ".snapmatic/store/report/${RUN}"
 
       # No Storybook build and no browser: the pixels are already in the store
       # under their content hash, so this is a manifest edit and nothing more.

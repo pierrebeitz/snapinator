@@ -30,6 +30,7 @@ export function renderReport({ runId, total, added, changed, removed }) {
   .tag.changed { background:#feebc8; color:#7b341e; }
   .tag.added { background:#c6f6d5; color:#22543d; }
   .tag.removed { background:#fed7d7; color:#742a2a; }
+  .px { font:400 12px/1 ui-sans-serif,sans-serif; color:var(--muted); margin-left:auto; }
   .frames { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:1px; background:var(--line); }
   figure { margin:0; background:var(--card); padding:14px; }
   figcaption { color:var(--muted); font-size:12px; margin-bottom:8px; }
@@ -59,13 +60,15 @@ ${dirty ? '' : '<p class="empty">Every story matched its baseline byte for byte.
 `;
 }
 
-const changedCard = ({ id, was, hash, diff }) => `<section class="story">
-  <h2>${id}<span class="tag changed">changed</span></h2>
+const changedCard = ({ id, was, hash, diff, pixels }) => `<section class="story">
+  <h2>${id}<span class="tag changed">changed</span>${
+    typeof pixels === 'number' ? `<span class="px">${pixels.toLocaleString('en-US')} px moved</span>` : ''
+  }</h2>
   <div class="frames">
     <figure><figcaption>baseline · ${was.slice(0, 12)}</figcaption><img src="${img(was)}" alt="baseline"></figure>
     <figure><figcaption>current · ${hash.slice(0, 12)}</figcaption><img src="${img(hash)}" alt="current"></figure>
     ${diff ? `<figure><figcaption>diff</figcaption><img src="${img(diff)}" alt="diff"></figure>`
-           : '<figure><figcaption>diff</figcaption><p class="sub">Baseline blob missing from the store.</p></figure>'}
+           : `<figure><figcaption>diff</figcaption><p class="sub">The baseline image is not in the store, so there is nothing to compare against. Usually an upload that failed when this baseline was first taken.</p></figure>`}
   </div>
 </section>`;
 

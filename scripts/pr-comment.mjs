@@ -29,7 +29,8 @@ const runUrl = process.env.RUN_URL ?? '';
 const img = (hash) => `${publicUrl}/img/${hash}.png`;
 // No width attribute: the crops are already tight, so GitHub shows them at
 // natural size and only scales down when a cell is too narrow.
-const cell = (hash, label) => (hash ? `<img src="${img(hash)}" alt="${label}">` : '_none_');
+const cell = (hash, label) => (hash ? `<img src="${img(hash)}" alt="${label}">` : '_missing from the store_');
+const px = (n) => (typeof n === 'number' ? ` · ${n.toLocaleString('en-US')} px moved` : '');
 
 const summary = fs.existsSync(SUMMARY) ? JSON.parse(fs.readFileSync(SUMMARY, 'utf8')) : null;
 
@@ -103,7 +104,7 @@ function card(entry) {
       ];
 
   return `<details open>
-<summary><code>${entry.id}</code>${isNew ? ' — new story' : ''}</summary>
+<summary><code>${entry.id}</code>${isNew ? ' — new story' : px(entry.pixels)}</summary>
 
 ${table.join('\n')}
 

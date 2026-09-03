@@ -195,8 +195,10 @@ async function capture(port, stories, outDir) {
 
 /* ------------------------------------------------------------------- diff */
 
-// Returns the sha256 of the diff image, or null when the store has no baseline
-// to compare against (a rewritten history, a manually edited manifest).
+// Returns `{ hash, pixels }` for the diff image, or null when the store has no
+// baseline to compare against (a failed upload, a rewritten history, a manually
+// edited manifest). `pixels` is what actually moved on screen — the hash only
+// says the bytes differ.
 function renderDiff(store, storyId, baselineHash, shotPath, blobDir) {
   const baselinePath = path.join(WORK, 'baseline', `${storyId}.png`);
   if (!store.fetch(blobKey(baselineHash), baselinePath)) return null;
@@ -209,16 +211,19 @@ function renderDiff(store, storyId, baselineHash, shotPath, blobDir) {
 
   // Mismatched dimensions are a real change, not an error: pad both to the
   // union box so the diff shows where the layout grew.
-  pixelmatch(pad(before, width, height).data, pad(after, width, height).data, diff.data, width, height, {
-    threshold: 0.1,
-    alpha: 0.2,
-    diffColor: [255, 0, 128],
-  });
+  const pixels = pixelmatch(
+    pad(before, width, height).data,
+    pad(after, width, height).data,
+    diff.data,
+    width,
+    height,
+    { threshold: 0.1, alpha: 0.2, diffColor: [255, 0, 128] },
+  );
 
   const buf = PNG.sync.write(diff);
   const hash = sha256(buf);
   fs.writeFileSync(path.join(blobDir, `${hash}.png`), buf);
-  return hash;
+  return { hash, pixels };
 }
 
 function pad(png, width, height) {
@@ -275,8 +280,24 @@ for (const [id, hash] of Object.entries(shots)) {
   fs.copyFileSync(path.join(shotDir, `${id}.png`), path.join(blobDir, `${hash}.png`));
 }
 for (const entry of changed) {
-  entry.diff = renderDiff(store, entry.id, entry.was, path.join(shotDir, `${entry.id}.png`), blobDir);
+  const diff = renderDiff(store, entry.id, entry.was, path.join(shotDir, `${entry.id}.png`), blobDir);
+  entry.diff = diff?.hash ?? null;
+  entry.pixels = diff?.pixels ?? null;
 }
+
+// A story can re-encode to different bytes without a single pixel moving. The
+// manifest records bytes, but the gate is about what people see, so drop those
+// and leave the manifest alone — it keeps the first-seen bytes and the noise
+// never surfaces again.
+const unmoved = changed.filter((e) => e.pixels === 0);
+for (const entry of unmoved) changed.splice(changed.indexOf(entry), 1);
+if (unmoved.length) {
+  console.log(`\n${unmoved.length} story(ies) changed bytes without moving a pixel; ignored.`);
+}
+
+// Biggest movement first: with a cap on how many get inlined, the ones worth
+// looking at should not be decided alphabetically.
+changed.sort((a, b) => (b.pixels ?? Infinity) - (a.pixels ?? Infinity));
 
 // A report that references images stored somewhere else is a report that shows
 // broken pictures the moment anyone downloads it. Copy everything it points at
@@ -307,7 +328,7 @@ try {
   console.error(`\nCould not publish images to ${store.describe()}: ${error.message}`);
 }
 
-const summary = { runId: RUN_ID, total: stories.length, added, changed, removed, failures, published };
+const summary = { runId: RUN_ID, total: stories.length, added, changed, removed, failures, unmoved: unmoved.length, published };
 fs.writeFileSync(path.join(reportDir, 'summary.json'), JSON.stringify(summary, null, 2));
 fs.writeFileSync(path.join(reportDir, 'index.html'), renderReport(summary));
 

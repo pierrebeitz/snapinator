@@ -180,6 +180,20 @@ for (const entry of changed) {
   entry.diff = renderDiff(store, entry.id, entry.was, path.join(shotDir, `${entry.id}.png`), blobDir);
 }
 
+// A report that references images stored somewhere else is a report that shows
+// broken pictures the moment anyone downloads it. Copy everything it points at
+// next to it, so the folder stands on its own wherever it ends up.
+const reportImgDir = path.join(reportDir, 'img');
+fs.mkdirSync(reportImgDir, { recursive: true });
+for (const entry of [...added, ...changed]) {
+  for (const hash of [entry.hash, entry.was, entry.diff].filter(Boolean)) {
+    const dest = path.join(reportImgDir, `${hash}.png`);
+    const staged = path.join(blobDir, `${hash}.png`);
+    if (fs.existsSync(staged)) fs.copyFileSync(staged, dest);
+    else store.fetch(blobKey(hash), dest); // a baseline, already in the store
+  }
+}
+
 const summary = { runId: RUN_ID, total: stories.length, added, changed, removed };
 fs.writeFileSync(path.join(reportDir, 'summary.json'), JSON.stringify(summary, null, 2));
 fs.writeFileSync(path.join(reportDir, 'index.html'), renderReport(summary));

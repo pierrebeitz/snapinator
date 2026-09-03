@@ -4,8 +4,9 @@
  * so the same file works on a local disk and behind CloudFront.
  */
 
-// Report lives at `report/<runId>/index.html`; blobs at `img/<sha>.png`.
-const img = (hash) => `../../img/${hash}.png`;
+// Every image the report needs sits in an `img/` folder beside it, so the page
+// works from a bucket, a downloaded artifact, or a laptop with no network.
+const img = (hash) => `img/${hash}.png`;
 
 export function renderReport({ runId, total, added, changed, removed }) {
   const dirty = added.length + changed.length + removed.length;

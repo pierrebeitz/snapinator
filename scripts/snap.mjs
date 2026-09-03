@@ -340,20 +340,6 @@ const removed = Object.keys(baseline).filter((id) => !(id in shots) && !quaranti
 for (const [id, hash] of Object.entries(shots)) {
   fs.copyFileSync(path.join(shotDir, `${id}.png`), path.join(blobDir, `${hash}.png`));
 }
-let storeUnreadable = null;
-for (const entry of changed) {
-  let diff = null;
-  try {
-    diff = storeUnreadable ? null : renderDiff(store, entry.id, entry.was, path.join(shotDir, `${entry.id}.png`), blobDir);
-  } catch (error) {
-    // Say it once, not forty times, and stop asking.
-    storeUnreadable ??= error.message;
-    console.error(`\nCould not read baselines: ${error.message}`);
-  }
-  entry.diff = diff?.hash ?? null;
-  entry.pixels = diff?.pixels ?? null;
-}
-
 // A story that disagrees under load and agrees when asked again was never
 // disagreeing about anything. Capture the handful that moved a second time,
 // alone and with a longer pause, and keep only the ones that still differ.
@@ -386,6 +372,20 @@ if (changed.length && changed.length <= RETRY_LIMIT) {
 }
 
 server.close();
+
+let storeUnreadable = null;
+for (const entry of changed) {
+  let diff = null;
+  try {
+    diff = storeUnreadable ? null : renderDiff(store, entry.id, entry.was, path.join(shotDir, `${entry.id}.png`), blobDir);
+  } catch (error) {
+    // Say it once, not forty times, and stop asking.
+    storeUnreadable ??= error.message;
+    console.error(`\nCould not read baselines: ${error.message}`);
+  }
+  entry.diff = diff?.hash ?? null;
+  entry.pixels = diff?.pixels ?? null;
+}
 
 // A story can re-encode to different bytes without a single pixel moving. The
 // manifest records bytes, but the gate is about what people see, so drop those

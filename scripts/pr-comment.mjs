@@ -67,7 +67,7 @@ All ${total} stories match their baseline, pixel for pixel.`;
   const rest = moved.length - shown.length;
 
   const gallery = noImages
-    ? `${moved.map((e) => `- \`${e.id}\`${e.was ? '' : ' — new story'}`).join('\n')}
+    ? `${moved.map((e) => `- \`${e.id}\`${e.was ? px(e.pixels) : ' — new story'}`).join('\n')}
 
 > The images are in the **report** artifact on [the run](${runUrl}). Set the
 > \`SNAPINATOR_PUBLIC_URL\` repository variable to a bucket or CDN and they show

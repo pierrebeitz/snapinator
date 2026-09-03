@@ -1,0 +1,26 @@
+{
+  "runId": "33791272979-1",
+  "total": 8,
+  "added": [],
+  "changed": [
+    {
+      "id": "button--primary",
+      "hash": "b34549e8507844698a633f2cd74ab2c8dd5cb5d4b4b972560b14650c074a824a",
+      "was": "28acce101edf6b6eddc20662d117b6dbd7564d8b9dfdfbe1399a969993f61e36",
+      "diff": "a03f1c8bf6ed9c6629f7e559806494a9dd8cbc22778f2384dd16680f8fdfc1f6"
+    },
+    {
+      "id": "card--default",
+      "hash": "08ba163ee2e9934d1a7f16a5de0af433b66e8c2f626b25b37b978e9e0f38eab7",
+      "was": "4cca9b2bd54d983d738938b75d9900923f6422cc139da4570d30b665c97e9969",
+      "diff": "9b2b201760c06849022da8bfa505e2fa8d7cf40f37bd41d3e521da2b2b5c3153"
+    },
+    {
+      "id": "card--with-tone",
+      "hash": "523dda38631dd669bfee783719e6bfef41339d3599d311166479c9ea92d79e11",
+      "was": "ff9943e6bed034bf44b79587a4efbd500a8bc06f0df78aeae903411891f22980",
+      "diff": "9216fccffe4d3bff89d7e68c3458d55f48e34eb3e0a9d02007fb8265baa2af1c"
+    }
+  ],
+  "removed": []
+}

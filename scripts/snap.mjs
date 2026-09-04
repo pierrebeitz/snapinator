@@ -203,6 +203,16 @@ async function capture(port, stories, outDir, { workers = WORKERS, settleMs = SE
             // is what it falls back to. Better a picture than a dropped story.
           });
 
+        // The render phase covers the play function and the render; it does
+        // not cover requests still in flight. Every story in the remaining
+        // unstable tail was a data-driven page — dashboards, dialogs, settings
+        // — which is what a mock still resolving looks like from outside.
+        //
+        // Bounded and forgiving: a story that keeps a connection open would
+        // never go idle, and waiting forever on it would be worse than
+        // capturing it slightly early.
+        await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
+
         await page.evaluate(() => document.fonts.ready);
 
         // A fixed settle, not an adaptive one. Waiting for the DOM to hold

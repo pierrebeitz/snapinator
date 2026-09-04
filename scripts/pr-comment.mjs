@@ -46,13 +46,13 @@ function body() {
 No report was produced. The [workflow log](${runUrl}) has the details.`;
   }
 
-  const { runId, total, added, changed, removed, failures = [] } = summary;
+  const { runId, total, optedOut = 0, quarantined = 0, added, changed, removed, failures = [] } = summary;
   const moved = [...changed, ...added];
 
   if (!moved.length && !removed.length && !failures.length) {
     return `### No visual changes
 
-All ${total} stories match their baseline, pixel for pixel.`;
+All ${total} compared stories match their baseline, pixel for pixel.${excluded(optedOut, quarantined)}`;
   }
 
   const report = `${publicUrl}/report/${runId}/index.html`;
@@ -95,9 +95,23 @@ All ${total} stories match their baseline, pixel for pixel.`;
     `/approve-visual ${moved.map((e) => e.id).join(' ')}`,
     '```',
     '',
-    `<sub>${total} stories captured · ${noImages ? '' : `[full report](${report}) · `}[run log](${runUrl})</sub>`,
+    `<sub>${total} stories compared${excludedShort(optedOut, quarantined)} · ${noImages ? '' : `[full report](${report}) · `}[run log](${runUrl})</sub>`,
   ].filter((line) => line !== null).join('\n');
 }
+
+// Never let the summary imply coverage the run did not have.
+function excluded(optedOut, quarantined) {
+  const parts = [
+    optedOut && `${optedOut} opted out with \`disableSnapshot\``,
+    quarantined && `${quarantined} quarantined as unstable`,
+  ].filter(Boolean);
+  return parts.length ? `\n\nNot compared: ${parts.join(', ')}.` : '';
+}
+
+const excludedShort = (optedOut, quarantined) => {
+  const n = optedOut + quarantined;
+  return n ? `, ${n} not compared` : '';
+};
 
 function card(entry) {
   const isNew = !entry.was;

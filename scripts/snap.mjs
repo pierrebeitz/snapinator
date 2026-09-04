@@ -465,7 +465,21 @@ try {
   console.error(`\nCould not publish images to ${store.describe()}: ${error.message}`);
 }
 
-const summary = { runId: RUN_ID, total: stories.length, added, changed, removed, failures, unmoved: unmoved.length, published };
+// `total` is what was actually compared. Counting the opted-out and the
+// quarantined in it would let the comment claim coverage the run never had —
+// the one thing a gate must never do.
+const summary = {
+  runId: RUN_ID,
+  total: toCapture.length,
+  optedOut: optedOut.size,
+  quarantined: quarantined.size,
+  added,
+  changed,
+  removed,
+  failures,
+  unmoved: unmoved.length,
+  published,
+};
 fs.writeFileSync(path.join(reportDir, 'summary.json'), JSON.stringify(summary, null, 2));
 fs.writeFileSync(path.join(reportDir, 'index.html'), renderReport(summary));
 

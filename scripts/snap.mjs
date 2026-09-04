@@ -45,7 +45,6 @@ const acceptAll = acceptArg === '--accept';
 const acceptOnly = acceptArg?.startsWith('--accept=') ? acceptArg.slice(9).split(',').filter(Boolean) : [];
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
-const failures = [];
 const blobKey = (hash) => `img/${hash}.png`;
 
 /* ---------------------------------------------------------------- serving */
@@ -88,15 +87,42 @@ const DETERMINISM_SHIM = `
 function serve(root) {
   const base = path.resolve(root);
   const server = http.createServer((req, res) => {
-    const rel = decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '') || 'index.html';
-    const file = path.resolve(base, rel);
-    if (!file.startsWith(base) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
-      res.writeHead(404).end('not found');
-      return;
+    // Every branch here is guarded because an uncaught throw in a request
+    // handler kills the process mid-capture — five minutes of work and no
+    // report, over one malformed percent-escape in an asset URL.
+    try {
+      const raw = req.url.split('?')[0];
+      let rel;
+      try {
+        rel = decodeURIComponent(raw).replace(/^\/+/, '') || 'index.html';
+      } catch {
+        res.writeHead(400).end('bad request');
+        return;
+      }
+
+      const file = path.resolve(base, rel);
+      // `path.relative`, not a string prefix: `startsWith(base)` also admits a
+      // sibling directory whose name merely begins with it.
+      const inside = path.relative(base, file);
+      if (inside.startsWith('..') || path.isAbsolute(inside)) {
+        res.writeHead(403).end('forbidden');
+        return;
+      }
+      if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+        res.writeHead(404).end('not found');
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
+      const stream = fs.createReadStream(file);
+      stream.on('error', () => res.destroy());
+      stream.pipe(res);
+    } catch {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
     }
-    res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
-    fs.createReadStream(file).pipe(res);
   });
+  server.on('clientError', (_error, socket) => socket.destroy());
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
   });
@@ -133,8 +159,11 @@ async function readOptOuts(port, ids) {
       return out;
     }, ids);
   } catch (error) {
-    console.error(`Could not read story parameters (${error.message}); no opt-outs applied.`);
-    return [];
+    // Returning an empty list here would silently capture every story the suite
+    // deliberately excludes, report them all as new, and let one blanket
+    // approval write them into the baseline permanently. A degradation that
+    // large should stop the run, not widen it.
+    throw new Error(`Could not read story parameters: ${error.message}`);
   } finally {
     await browser.close();
   }
@@ -142,9 +171,14 @@ async function readOptOuts(port, ids) {
 
 /* ---------------------------------------------------------------- capture */
 
+// Returns its own failures rather than appending to a shared list: the
+// confirmation pass calls this too, and a hiccup during a retry would otherwise
+// mark a story that captured perfectly well as "did not render" — reported in
+// the comment alongside its own before/after images, and forcing exit 1.
 async function capture(port, stories, outDir, { workers = WORKERS, settleMs = SETTLE_MS } = {}) {
   const browser = await chromium.launch();
   const shots = {};
+  const failures = [];
   const queue = [...stories];
   const total = queue.length;
   let done = 0;
@@ -235,7 +269,14 @@ async function capture(port, stories, outDir, { workers = WORKERS, settleMs = SE
         const clip = await page.evaluate((pad) => {
           const root = document.querySelector('#storybook-root');
           if (!root) return null;
-          const rects = [...root.querySelectorAll('*')]
+
+          // Measured over the whole body, not just the story root. Radix mounts
+          // popovers, tooltips, dropdowns and dialogs through a portal into
+          // `document.body`, so a box drawn around `#storybook-root` alone
+          // frames the trigger button and crops away the thing the story exists
+          // to show. `ui-popover--overview` renders `<Popover defaultOpen>` and
+          // its baseline was two buttons and nothing else.
+          const rects = [...document.body.querySelectorAll('*')]
             .map((el) => el.getBoundingClientRect())
             .filter((r) => r.width > 0 && r.height > 0);
           if (!rects.length) return null;
@@ -279,7 +320,7 @@ async function capture(port, stories, outDir, { workers = WORKERS, settleMs = SE
 
   await Promise.all(Array.from({ length: Math.min(workers, total) }, worker));
   await browser.close();
-  return shots;
+  return { shots, failures };
 }
 
 /* ------------------------------------------------------------------- diff */
@@ -350,7 +391,7 @@ const toCapture = stories.filter((s) => !optedOut.has(s.id));
 if (optedOut.size) console.log(`${optedOut.size} opted out with chromatic.disableSnapshot`);
 
 console.log(`Capturing ${toCapture.length} stories${quarantined.size ? `, ${quarantined.size} quarantined` : ''}`);
-const shots = await capture(port, toCapture, shotDir);
+const { shots, failures } = await capture(port, toCapture, shotDir);
 
 const baseline = read(MANIFEST, {});
 const store = openStore();
@@ -362,7 +403,14 @@ for (const [id, hash] of Object.entries(shots)) {
   if (!(id in baseline)) added.push({ id, hash });
   else if (baseline[id] !== hash) changed.push({ id, hash, was: baseline[id] });
 }
-const removed = Object.keys(baseline).filter((id) => !(id in shots) && !quarantined.has(id) && !optedOut.has(id));
+// A story that failed to render is absent from `shots`, which would otherwise
+// classify it as removed — and approving a run deletes removed stories from the
+// manifest. One timeout would silently drop a story's baseline, and the next
+// approve would re-baseline whatever it happened to render.
+const failedIds = new Set(failures.map((f) => f.id));
+const removed = Object.keys(baseline).filter(
+  (id) => !(id in shots) && !quarantined.has(id) && !optedOut.has(id) && !failedIds.has(id),
+);
 
 // Where each story's final image lives on disk. Only a confirmed blip moves.
 const source = Object.fromEntries(Object.keys(shots).map((id) => [id, path.join(shotDir, `${id}.png`)]));
@@ -381,7 +429,7 @@ if (changed.length && changed.length <= RETRY_LIMIT) {
 
   // One worker, twice the pause: the retry exists to remove contention, so it
   // must not run under the conditions that caused the disagreement.
-  const again = await capture(
+  const { shots: again } = await capture(
     port,
     changed.map((e) => toCapture.find((s) => s.id === e.id)).filter(Boolean),
     retryDir,
@@ -501,6 +549,11 @@ try {
 
 const accepted = acceptAll ? [...added, ...changed].map((e) => e.id) : acceptOnly;
 if (accepted.length || (acceptAll && removed.length)) {
+  const unknown = accepted.filter((id) => !(id in shots));
+  if (unknown.length) {
+    console.error(`Not captured in this run: ${unknown.join(', ')}`);
+    process.exit(2);
+  }
   const merged = { ...baseline };
   for (const id of accepted) merged[id] = shots[id];
   if (acceptAll) for (const id of removed) delete merged[id];
@@ -508,7 +561,8 @@ if (accepted.length || (acceptAll && removed.length)) {
   console.log(`\nAccepted ${accepted.length} snapshot(s) into ${MANIFEST}`);
 }
 console.log(`\n${added.length} added · ${changed.length} changed · ${removed.length} removed`);
-console.log(`Report: ${path.join(store.describe(), 'report', RUN_ID, 'index.html')}`);
+const reportAt = store.describe().replace(/\/$/, '');
+console.log(`Report: ${reportAt}/report/${RUN_ID}/index.html`);
 
 // A story that would not render is a failure of the gate, not a footnote.
 // Leaving it out of the exit code is how a run goes green over a blank page.

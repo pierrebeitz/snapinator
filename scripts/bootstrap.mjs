@@ -52,7 +52,11 @@ fs.rmSync(BASELINES, { force: true });
 const PASSES = Number(process.env.SNAPINATOR_BOOTSTRAP_PASSES || 3);
 
 console.log(`Pass 1 of ${PASSES} — accepting everything`);
-snap(['--accept']);
+// Tolerant for the same reason the later passes are: snap exits 1 when any
+// story fails to render, and across 400+ stories one timeout is routine. The
+// later passes fold those ids into the quarantine; pass 1 rethrowing would
+// kill the bootstrap outright and leave no baseline at all.
+snap(['--accept'], { tolerateChanges: true });
 if (!fs.existsSync(BASELINES)) throw new Error(`Pass 1 wrote no manifest at ${BASELINES}.`);
 
 const unstableSet = new Set();

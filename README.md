@@ -120,9 +120,11 @@ yarn selfcheck
 
 It seeds a baseline as main, recolours the button, proves a pull request catches
 it, approves it, deletes a story and approves that too — through the real
-pipeline, not a mock. It also asserts the two properties the overlay exists for:
-approving on a pull request never moves main's baseline, and an accepted removal
-leaves a tombstone the next run reads as "gone, and that is fine".
+pipeline, not a mock. It also asserts the properties the moving parts exist for:
+approving on a pull request never moves main's baseline, an accepted removal
+leaves a tombstone the next run reads as "gone, and that is fine", a settled
+suite photographs nothing at all, and a component reached only through
+`React.lazy` still re-photographs the stories that render it.
 
 Note what it asserts: **three** stories move, not one. `Card` renders a
 `Button`, so recolouring the button moves every story downstream of it. That
@@ -214,6 +216,49 @@ reviewer actually looked at.
 The permission check is one line, because the question "may this person approve"
 is the same question as "may this person write to the repo", and GitHub has
 already answered it.
+
+---
+
+## Not photographing what cannot have moved
+
+The capture is nearly all of the wall clock, and most pull requests never go
+near most of the suite. A story whose inputs have not moved since a run that
+photographed it cannot look different, so that run's answer still stands.
+
+Each run records what it proved — `fingerprint -> the hash it photographed` —
+and a later run skips any story whose fingerprint still matches a recording that
+agrees with the current baseline. Both halves carry weight: the fingerprint says
+the build and the browser are the same, the recorded hash says that pair produced
+*this* baseline. Neither alone is enough.
+
+The fingerprint comes from the bundler's own output. Storybook splits the suite
+into content-hashed chunks and writes the graph into their import statements, so
+a story's fingerprint is the contents of its own chunk closure plus the preview
+runtime that `iframe.html` names — with the content hashes stripped out of every
+name, because a name moves whenever anything it merely points at moves. There is
+no externals list and no globs, so nothing can fall behind the code.
+
+Three rules keep it from ever skipping something that did move:
+
+- **Only main records proofs, and a run that records one takes the photograph.**
+  A branch recording its own build would offer every other branch a verdict on a
+  tree nobody merged; a run that skipped on its own proof would re-record it and
+  preserve drift no fingerprint can see — a font, a container rebuild — forever.
+- **Outside the entry's closure, every reference is followed, lazy ones
+  included.** A component reached through `React.lazy` decides the pixel exactly
+  as much as one reached directly. (The entry is the exception: its lazy map
+  names the whole suite.)
+- **A split build that parses no import edges is a failure, not a flat graph.**
+  Every closure would silently collapse to the story's own chunk, and the skip
+  would start certifying stale screenshots. It refuses instead.
+
+Whatever the fingerprint cannot see has to be in the salt: the browser version,
+the viewport, the settle, and `snap.mjs` itself — the frozen clock and the
+animation kill never reach the build output.
+
+Stylesheets, fonts and images are shared by every fingerprint rather than traced,
+because their graph is not in their contents. A font that moves re-photographs
+the suite, which is the honest answer for a font.
 
 ---
 

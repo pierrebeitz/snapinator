@@ -7,7 +7,7 @@ const styles = {
     border: '1px solid transparent',
     cursor: 'pointer',
   },
-  primary: { background: '#2b6cb0', color: '#fff' },
+  primary: { background: '#7c3aed', color: '#fff' },
   secondary: { background: '#fff', color: '#2d3748', borderColor: '#cbd5e0' },
   danger: { background: '#c53030', color: '#fff' },
 };

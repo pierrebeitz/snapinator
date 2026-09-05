@@ -1,0 +1,28 @@
+{
+  "runId": "33979547017-1",
+  "total": 8,
+  "skipped": 0,
+  "optedOut": 0,
+  "quarantined": 0,
+  "added": [],
+  "changed": [
+    {
+      "id": "card--default",
+      "hash": "420d53dedec2adb0832a5ab45cec43ae5c3bc873d82237b0000bd880d12c9a9a",
+      "was": "dd2d7fb4a33f397ce79b83137829fefbb1fe34b2416530053c1b203f0d8a5e53",
+      "diff": "44cabd4e695dc338bf9c7f65fc4fb4be4c69e6f775653708b0e608202183f563",
+      "pixels": 226
+    },
+    {
+      "id": "card--with-tone",
+      "hash": "d21e31ffec0a9d9e1a100098ea83deb5769da9c0379d665df9883e196614ec8a",
+      "was": "137827314328aea0ebf2c5c76fd069160df95660339ea655d0efc7d4c6f2e6fc",
+      "diff": "4dddb8854bb28061d5e4bc843f659608acb3471bcf67cf54639dd2895f9ac7c8",
+      "pixels": 226
+    }
+  ],
+  "removed": [],
+  "failures": [],
+  "unmoved": 0,
+  "published": true
+}

@@ -1,0 +1,20 @@
+{
+  "runId": "33933829211-1",
+  "total": 8,
+  "optedOut": 0,
+  "quarantined": 0,
+  "added": [],
+  "changed": [
+    {
+      "id": "badge--success",
+      "hash": "317f9bb8c4bca8781ef571b77d1a1d3d51f428343257a2e6efd515c15011f6fd",
+      "was": "6e3d73ae89aca8d374c00a4e6e4a6d933006ea6927ed919d16e43952430482b4",
+      "diff": "bf4afac0fe67415b4ae18694f47096bcd9874139ab34f650f28a62f901a16946",
+      "pixels": 443
+    }
+  ],
+  "removed": [],
+  "failures": [],
+  "unmoved": 0,
+  "published": true
+}

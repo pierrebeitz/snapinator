@@ -19,6 +19,10 @@ import fs from 'node:fs';
 // the approve workflow can find the run without parsing a URL that may not be
 // there. Anything downstream matches on the prefix, never the whole line.
 const MARKER = '<!-- snapinator';
+// Served from the repository rather than the store: GitHub's image proxy
+// fetches anonymously, and this one should render even before a run has
+// published anything.
+const MASCOT = `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY ?? 'pierrebeitz/snapinator'}/main/assets/mascot.jpg`;
 const SUMMARY = '.snapinator/run/report/summary.json';
 const INLINE_LIMIT = 8; // Past this the comment is a scroll wall; link out instead.
 
@@ -128,7 +132,7 @@ ${table.join('\n')}
 
 /* ------------------------------------------------------------------ posting */
 
-const text = `${MARKER} run=${summary?.runId ?? 'none'} -->\n${body()}\n`;
+const text = `${MARKER} run=${summary?.runId ?? 'none'} -->\n<img src="${MASCOT}" width="52" align="left" alt="">\n\n${body()}\n`;
 
 if (!pr) {
   process.stdout.write(text);

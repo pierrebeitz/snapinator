@@ -50,13 +50,13 @@ function body() {
 No report was produced. The [workflow log](${runUrl}) has the details.`;
   }
 
-  const { runId, total, optedOut = 0, quarantined = 0, added, changed, removed, failures = [] } = summary;
+  const { runId, total, skipped = 0, optedOut = 0, quarantined = 0, added, changed, removed, failures = [] } = summary;
   const moved = [...changed, ...added];
 
   if (!moved.length && !removed.length && !failures.length) {
     return `### No visual changes
 
-All ${total} compared stories match their baseline, pixel for pixel.${excluded(optedOut, quarantined)}`;
+All ${total + skipped} stories match their baseline, pixel for pixel.${unchanged(skipped)}${excluded(optedOut, quarantined)}`;
   }
 
   const report = `${publicUrl}/report/${runId}/index.html`;
@@ -94,9 +94,14 @@ All ${total} compared stories match their baseline, pixel for pixel.${excluded(o
     '',
     '**Do these look right?** Comment `/approve-visual` and the baseline moves.',
     '',
-    `<sub>${total} stories compared${excludedShort(optedOut, quarantined)} · ${noImages ? '' : `[full report](${report}) · `}[run log](${runUrl})</sub>`,
+    `<sub>${total} photographed${skipped ? `, ${skipped} unchanged` : ''}${excludedShort(optedOut, quarantined)} · ${noImages ? '' : `[full report](${report}) · `}[run log](${runUrl})</sub>`,
   ].filter((line) => line !== null).join('\n');
 }
+
+// A skipped story is covered, unlike an excluded one: nothing it renders has
+// moved since the run that photographed it, so that run's verdict is this run's.
+const unchanged = (skipped) =>
+  skipped ? `\n\n${skipped} of them were not re-photographed — the build they render from is unchanged.` : '';
 
 // Never let the summary imply coverage the run did not have.
 function excluded(optedOut, quarantined) {

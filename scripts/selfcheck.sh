@@ -2,7 +2,8 @@
 #
 # Drive the whole loop against the real pipeline: seed a baseline as main,
 # break a component, prove a pull request catches it, approve it, delete a
-# story and approve that too.
+# story and approve that too — and prove the skip only ever skips stories that
+# genuinely cannot have moved.
 #
 # Runs against a throwaway store, so the real baseline is never touched. The
 # pull request writes only to its own overlay: main's baseline is compared
@@ -39,19 +40,24 @@ effective() {
     process.stdout.write(String(Object.keys(m).length));
   "
 }
-# A pull request run: it reads the overlay and never writes the baseline.
+# What a run photographed, and what it skipped for already agreeing.
+photographed() { emit "require('./.snapinator/run/report/summary.json').total"; }
+unphotographed() { emit "require('./.snapinator/run/report/summary.json').skipped"; }
+# A pull request run: it reads the overlay and the cache, and writes neither.
 pr_snap() { SNAPINATOR_OVERLAY=baseline/pr-1.json node scripts/snap.mjs "$@"; }
 pr_accept() { SNAPINATOR_OVERLAY=baseline/pr-1.json node scripts/accept.mjs "$@"; }
 
 yarn build-storybook >/dev/null 2>&1
 
-echo "1. main seeds the baseline"
-node scripts/snap.mjs --accept >/dev/null
+echo "1. main seeds the baseline and records what it proved"
+SNAPINATOR_CACHE_WRITE=1 node scripts/snap.mjs --accept >/dev/null
 [[ $(size "$baseline") == 8 ]] || fail "expected 8 stories in the baseline"
+[[ $(photographed) == 8 ]] || fail "the run that records a proof must take the photograph, got $(photographed)"
 main_before=$(cat "$baseline")
 
-echo "2. a clean run is silent and exits 0"
+echo "2. a clean run photographs nothing, and still exits 0"
 pr_snap >/dev/null || fail "unchanged suite should exit 0"
+[[ $(unphotographed) == 8 ]] || fail "expected all 8 skipped, got $(unphotographed)"
 
 echo "3. recolour the button"
 # Swap for a colour that is definitely not the current one. Hard-coding the
@@ -69,6 +75,9 @@ echo "4. the change is caught, and so is its blast radius"
 pr_snap >/dev/null && fail "changed suite should exit 1"
 cp .snapinator/run/report/summary.json "${work}/run.json"
 [[ $(count changed) == 3 ]] || fail "expected 3 changed stories (button + the two cards that render it), got $(count changed)"
+# The three badges render nothing downstream of Button, so nothing about them
+# can have moved and the run is entitled to trust its earlier photograph.
+[[ $(unphotographed) == 3 ]] || fail "expected the 3 badge stories to be skipped, got $(unphotographed)"
 run=$(emit "require('./${work}/run.json').runId")
 
 echo "5. approving writes the overlay, and nothing to main"
@@ -109,6 +118,21 @@ pr_accept "$(emit "require('./${work}/run.json').runId")" >/dev/null || fail "ap
 [[ $(effective) == 7 ]] || fail "the tombstone should leave 7 stories to compare, got $(effective)"
 pr_snap >/dev/null || fail "the removal is approved; should exit 0"
 [[ "$(cat "$baseline")" == "$main_before" ]] || fail "approving on a pull request moved main's baseline"
+
+echo "10. a story is re-photographed when a component it lazily loads moves"
+# As main would be after all of that merged: baseline and proofs agree again,
+# so the only thing that has moved when Footnote does is Footnote.
+SNAPINATOR_CACHE_WRITE=1 node scripts/snap.mjs --accept >/dev/null
+pr_snap >/dev/null || fail "everything is settled; should exit 0"
+[[ $(photographed) == 0 ]] || fail "expected a settled suite to photograph nothing, got $(photographed)"
+
+# Nothing in the static import graph joins Card to Footnote, so a fingerprint
+# built from static edges alone would skip both Card stories here — and skip
+# them on a screenshot that no longer matches what the browser renders.
+sed -i.bak "s/#718096/#111111/" src/components/Footnote.jsx && rm -f src/components/Footnote.jsx.bak
+yarn build-storybook >/dev/null 2>&1
+pr_snap >/dev/null || true
+[[ $(photographed) == 2 ]] || fail "expected only the 2 Card stories to be re-photographed, got $(photographed)"
 
 echo
 echo "✓ All checks passed."

@@ -1,5 +1,9 @@
+import { lazy, Suspense } from 'react';
+
 import { Badge } from './Badge';
 import { Button } from './Button';
+
+const Footnote = lazy(() => import('./Footnote').then((m) => ({ default: m.Footnote })));
 
 export function Card({ title, body, tone }) {
   return (
@@ -18,6 +22,9 @@ export function Card({ title, body, tone }) {
       </div>
       <p style={{ margin: '0 0 16px', color: '#4a5568', lineHeight: 1.5 }}>{body}</p>
       <Button>Open</Button>
+      <Suspense fallback={null}>
+        <Footnote>Lazily loaded.</Footnote>
+      </Suspense>
     </div>
   );
 }

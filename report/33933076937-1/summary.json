@@ -1,0 +1,69 @@
+{
+  "runId": "33933076937-1",
+  "total": 8,
+  "optedOut": 0,
+  "quarantined": 0,
+  "added": [],
+  "changed": [
+    {
+      "id": "card--default",
+      "hash": "03385841f93ad4eaae8c0faa91462b21527bf716fba1fb91fa8d46944de92c8b",
+      "was": "4cca9b2bd54d983d738938b75d9900923f6422cc139da4570d30b665c97e9969",
+      "diff": "6e5e531aff5dccc7d0fefa0e0b901cee4576d47c3b775db16853f7b33894aad0",
+      "pixels": 157992
+    },
+    {
+      "id": "card--with-tone",
+      "hash": "05fa660224db3ac7e764a18965f3ea241e54b572ca75dddc7092b7d0372977db",
+      "was": "ff9943e6bed034bf44b79587a4efbd500a8bc06f0df78aeae903411891f22980",
+      "diff": "58a4d833c9153538844011e5d532e72a7727985328c92d748f50a62d40264a1a",
+      "pixels": 157992
+    },
+    {
+      "id": "button--secondary",
+      "hash": "4b1df7d0af9afa66c6883cd43ce1456063a15c5c4f4b23f91f9ff86ff693ba0c",
+      "was": "27bd9ecc5a031881864d97a86158d5ceeee4a66aba99145779a6e1b870ef4c04",
+      "diff": "777d249eb4105d1186425431cffde0030b92cf700b291ce8bf4372f45be5e8e2",
+      "pixels": 54648
+    },
+    {
+      "id": "button--danger",
+      "hash": "facd93962b30f8e7d103217d6108752df71df84ebb4fc3306d2974da2089945e",
+      "was": "9639685483d92b78e22034f8fad11e4e6b17753687bc9fb33d701a8ba968136c",
+      "diff": "c89541718742ef5204686e8659f3d036c15d5ac09a287007ff1d134a60f560d1",
+      "pixels": 52440
+    },
+    {
+      "id": "button--primary",
+      "hash": "4e79d985ad2dcb58e7dbe2c55bd380d041096bf1b15178ff343d534ea2bab22a",
+      "was": "28acce101edf6b6eddc20662d117b6dbd7564d8b9dfdfbe1399a969993f61e36",
+      "diff": "65e27a4c96e5c2092416c50770271d6620db00fc137c54b7bfc52d73b25da952",
+      "pixels": 52440
+    },
+    {
+      "id": "badge--neutral",
+      "hash": "c9ef3efed62359f6992c6ec3d9ca60dd941d6da04944f008e0e2dafc5f31b474",
+      "was": "159e9c2c7eb27091285ea9b305338ac70b9b0b5fc76c36b205b02daa1bb1b59f",
+      "diff": "3d084cebaf20a63796811689bfde8c57fcf50a60fc40d5da4e4ea3770fd1098b",
+      "pixels": 36570
+    },
+    {
+      "id": "badge--success",
+      "hash": "6e3d73ae89aca8d374c00a4e6e4a6d933006ea6927ed919d16e43952430482b4",
+      "was": "7933f2cde808e81e4afba4958353d2fdb9e68a39ddb45e1b8b07507d19d2d610",
+      "diff": "f86702689748858041b9ec7118a8024a10fdb4e901cc85afef7ea9cf2fdbb11e",
+      "pixels": 35730
+    },
+    {
+      "id": "badge--warning",
+      "hash": "0c818456f198310d66222aff7cb660ba3b29a09544c398aed35fe234b30467fc",
+      "was": "c6c064705cd372a51a2e913a4c4e41f6cb1030860a3334d5b5f0386da13af8f3",
+      "diff": "f2789ae74539aa560c296ced4bbca09a4f41663dc4b8c3365953aa0408d8ae83",
+      "pixels": 35130
+    }
+  ],
+  "removed": [],
+  "failures": [],
+  "unmoved": 0,
+  "published": true
+}

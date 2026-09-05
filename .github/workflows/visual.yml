@@ -1,13 +1,19 @@
 name: Visual
 
-# Capture every story, compare against the manifest in git, publish the review
-# report to S3, and link it from the pull request.
+# Capture every story, compare against the baseline in the store, publish the
+# review report, and link it from the pull request.
+#
+# The verdict is the `Visual` commit status, not this job: a job has no third
+# colour, and "changes are waiting for a human" is the state that matters.
+# Yellow until someone accepts them, green when nothing moved or they did.
 #
 # The container tag is pinned to the exact `playwright` version in package.json.
 # That pairing is the whole determinism story: baselines are only ever produced
 # by this image, so a developer's font stack can never enter the manifest.
 on:
   pull_request:
+  # Main is the baseline: its run captures with `--accept`, so what main looks
+  # like now is what every pull request compares against.
   push:
     branches: [main]
   workflow_dispatch:
@@ -20,6 +26,7 @@ permissions:
   contents: write # to push new blobs to the store branch
   pull-requests: write
   id-token: write # OIDC into AWS; no long-lived keys
+  statuses: write # the verdict is a commit status
 
 jobs:
   snap:
@@ -55,12 +62,20 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      # `--accept` on main and nowhere else: main defines the baseline, so its
+      # capture writes one rather than complaining about the last one.
+      #
+      # Exit 1 is "something moved", which the `Visual` status reports and this
+      # job has no business failing over. Exit 2 is the tool breaking — an
+      # unreadable store, a browser that never launched — and that is red.
       - name: Capture and compare
-        continue-on-error: true # A visual change is a review item, not a build failure.
         env:
           SNAPINATOR_STORE: ${{ vars.SNAPINATOR_STORE }}
           SNAPINATOR_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-        run: node scripts/snap.mjs
+          SNAPINATOR_OVERLAY: ${{ github.event_name == 'pull_request' && format('baseline/pr-{0}.json', github.event.pull_request.number) || '' }}
+        run: |
+          node scripts/snap.mjs ${{ github.event_name == 'push' && '--accept' || '' }} ||
+            { code=$?; [ "$code" = 1 ] || exit "$code"; }
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -114,10 +129,11 @@ jobs:
       # The diff is rendered *into* the comment, not linked from it. Someone who
       # changed a colour in the GitHub web editor never has to leave the tab,
       # install anything, or know this tool exists.
-      - name: Comment the report
+      - name: Comment the report and settle the check
         if: github.event_name == 'pull_request'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SNAPINATOR_PUBLIC_URL: ${{ vars.SNAPINATOR_PUBLIC_URL }}
+          SNAPINATOR_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node scripts/pr-comment.mjs ${{ github.event.pull_request.number }}

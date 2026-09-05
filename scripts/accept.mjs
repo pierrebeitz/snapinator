@@ -1,25 +1,28 @@
 #!/usr/bin/env node
 /*
- * Approve snapshots from a run that already happened.
+ * Approve everything a run reported.
  *
- *   node scripts/accept.mjs <runId>            accept everything that moved
- *   node scripts/accept.mjs <runId> a b c      accept these story ids only
+ *   node scripts/accept.mjs <runId>
  *
  * No browser, no Storybook build. The run already captured the pixels and
  * pushed them to the store under their content hash, so approving is pure
- * bookkeeping: copy hashes out of that run's summary into the manifest. It
- * finishes in seconds, and — more importantly — it cannot disagree with what
- * the reviewer actually looked at, the way a re-capture can.
+ * bookkeeping: copy hashes out of that run's summary into the pull request's
+ * overlay. It finishes in seconds, and — more importantly — it cannot disagree
+ * with what the reviewer actually looked at, the way a re-capture can.
+ *
+ * The overlay is the pull request's own, never main's baseline: a change
+ * accepted on a branch must not move what every other branch compares against
+ * until it merges.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { openStore } from './store.mjs';
 
-const MANIFEST = process.env.SNAPINATOR_MANIFEST || 'snapshots.json';
-const [runId, ...only] = process.argv.slice(2);
+const OVERLAY_KEY = process.env.SNAPINATOR_OVERLAY;
+const runId = process.argv[2];
 
-if (!runId) {
-  console.error('usage: node scripts/accept.mjs <runId> [storyId...]');
+if (!runId || !OVERLAY_KEY) {
+  console.error('usage: SNAPINATOR_OVERLAY=<key> node scripts/accept.mjs <runId>');
   process.exit(2);
 }
 
@@ -31,22 +34,14 @@ if (!store.fetch(`report/${runId}/summary.json`, summaryPath)) {
 }
 
 const { added, changed, removed } = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
-const manifest = fs.existsSync(MANIFEST) ? JSON.parse(fs.readFileSync(MANIFEST, 'utf8')) : {};
+const overlay = store.readJson(OVERLAY_KEY, {});
 
-const moved = [...added, ...changed];
-const wanted = only.length ? moved.filter((e) => only.includes(e.id)) : moved;
+for (const { id, hash } of [...added, ...changed]) overlay[id] = hash;
+// `null`, not a deletion: the story is still in main's baseline, and dropping
+// the key here would just let it be reported as removed all over again.
+for (const id of removed) overlay[id] = null;
 
-const unknown = only.filter((id) => !moved.some((e) => e.id === id));
-if (unknown.length) {
-  console.error(`Not part of run ${runId}: ${unknown.join(', ')}`);
-  process.exit(2);
-}
+store.writeJson(OVERLAY_KEY, Object.fromEntries(Object.entries(overlay).sort(([a], [b]) => a.localeCompare(b))));
 
-for (const { id, hash } of wanted) manifest[id] = hash;
-if (!only.length) for (const id of removed) delete manifest[id];
-
-const sorted = Object.fromEntries(Object.entries(manifest).sort(([a], [b]) => a.localeCompare(b)));
-fs.writeFileSync(MANIFEST, `${JSON.stringify(sorted, null, 2)}\n`);
-
-const dropped = only.length ? 0 : removed.length;
-console.log(`Accepted ${wanted.length} snapshot(s)${dropped ? `, dropped ${dropped}` : ''} from run ${runId}.`);
+const moved = added.length + changed.length;
+console.log(`Accepted ${moved} snapshot(s)${removed.length ? `, dropped ${removed.length}` : ''} from run ${runId}.`);

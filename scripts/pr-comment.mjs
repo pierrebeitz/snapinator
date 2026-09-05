@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Render the run as a pull-request comment, and post it.
+ * Render the run as a pull-request comment, post it, and settle the check.
  *
  *   node scripts/pr-comment.mjs 42     post (or edit) the comment on PR 42
  *   node scripts/pr-comment.mjs        print the markdown and exit
@@ -89,11 +89,6 @@ All ${total} compared stories match their baseline, pixel for pixel.${excluded(o
     '---',
     '',
     '**Do these look right?** Comment `/approve-visual` and the baseline moves.',
-    'To accept only some of them, name them:',
-    '',
-    '```',
-    `/approve-visual ${moved.map((e) => e.id).join(' ')}`,
-    '```',
     '',
     `<sub>${total} stories compared${excludedShort(optedOut, quarantined)} · ${noImages ? '' : `[full report](${report}) · `}[run log](${runUrl})</sub>`,
   ].filter((line) => line !== null).join('\n');
@@ -181,3 +176,34 @@ const res = existing
 
 if (!res.ok) throw new Error(`Posting the comment failed: ${res.status} ${await res.text()}`);
 console.log(`${existing ? 'Updated' : 'Posted'} the visual review comment on #${pr}.`);
+
+/* -------------------------------------------------------------------- check */
+
+// A job that finished is not a verdict, and a workflow job has no third
+// colour. The check people read is this status: yellow while changes wait for
+// someone to look at them, green only when nothing moved or someone accepted
+// what did. `/approve-visual` turns the same context green without re-running.
+const sha = process.env.SNAPINATOR_SHA;
+if (sha) {
+  const moved = summary && summary.added.length + summary.changed.length + summary.removed.length;
+  const state = !summary || summary.failures?.length ? 'failure' : moved ? 'pending' : 'success';
+  const description = !summary
+    ? 'The capture did not finish.'
+    : summary.failures?.length
+      ? `${summary.failures.length} story(ies) never rendered.`
+      : moved
+        ? `${moved} change(s) waiting — comment /approve-visual to accept.`
+        : 'Every story matches its baseline.';
+
+  const check = await api(`/repos/${repo}/statuses/${sha}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      state,
+      context: 'Visual',
+      description,
+      target_url: summary && publicUrl ? `${publicUrl}/report/${summary.runId}/index.html` : runUrl,
+    }),
+  });
+  if (!check.ok) throw new Error(`Posting the status failed: ${check.status} ${await check.text()}`);
+  console.log(`Visual check on ${sha.slice(0, 9)} is ${state}.`);
+}

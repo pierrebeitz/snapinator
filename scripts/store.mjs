@@ -6,15 +6,37 @@
  * nothing, every branch's baselines coexist without collision, and objects can
  * be cached until the heat death of the universe.
  *
- * The store only needs two verbs. Everything reads via relative paths from the
- * report, so there is no public-URL setting to get wrong.
+ * Everything reads via relative paths from the report, so there is no
+ * public-URL setting to get wrong.
+ *
+ * `put` is the one exception to the content-addressed rule: the baseline is a
+ * pointer, and a pointer has to be overwritable to be a pointer.
  */
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 export function openStore(spec = process.env.SNAPINATOR_STORE || '.snapinator/store') {
-  return spec.startsWith('s3://') ? s3Store(spec) : localStore(spec);
+  const backend = spec.startsWith('s3://') ? s3Store(spec) : localStore(spec);
+  return { ...backend, ...json(backend) };
+}
+
+// Both backends move files rather than strings, so the round trip through a
+// scratch file lives here once instead of at every pointer.
+function json(store) {
+  const scratch = (key) => path.join('.snapinator', 'json', key.replace(/[^\w.-]/g, '_'));
+  return {
+    readJson(key, fallback) {
+      const file = scratch(key);
+      return store.fetch(key, file) ? JSON.parse(readFileSync(file, 'utf8')) : fallback;
+    },
+    writeJson(key, value) {
+      const file = scratch(key);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+      store.put(key, file);
+    },
+  };
 }
 
 function localStore(root) {
@@ -31,6 +53,11 @@ function localStore(root) {
       if (!existsSync(dir)) return;
       mkdirSync(path.join(root, prefix), { recursive: true });
       cpSync(dir, path.join(root, prefix), { recursive: true });
+    },
+    put(key, file) {
+      const dest = path.join(root, key);
+      mkdirSync(path.dirname(dest), { recursive: true });
+      cpSync(file, dest);
     },
   };
 }
@@ -66,6 +93,9 @@ function s3Store(base) {
         '--size-only',
         '--cache-control', 'public,max-age=31536000,immutable',
       ]);
+    },
+    put(key, file) {
+      aws(['s3', 'cp', file, at(key), '--cache-control', 'no-cache']);
     },
   };
 }

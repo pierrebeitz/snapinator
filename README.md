@@ -6,31 +6,39 @@ running a service.
 Chromatic has no self-hosted edition. What it actually sells is three separate
 things — a deterministic screenshot runner, somewhere to put the pixels, and an
 approve/deny UI with an audit trail. The first two are small. The third one you
-already own: **git is the approval service.**
+already own: **a pull request comment and a commit status are the approval
+service.**
 
 ---
 
 ## The idea
 
 ```
-snapshots.json                  storyId → sha256      ← the only thing in git
+s3://bucket/baseline/main.json  storyId → sha256      ← what main looks like
+s3://bucket/baseline/pr-42.json storyId → sha256      ← what #42 accepted
 s3://bucket/img/<sha256>.png    every snapshot ever   ← immutable, deduped
 s3://bucket/report/<run>/       before | after | diff ← a static HTML page
 ```
 
-**Approve** = commit the new hash. **Deny** = don't merge.
+Main captures with `--accept`, so `baseline/main.json` is always what main
+actually looks like — never a manifest someone forgot to update. A pull request
+compares against that, and `/approve-visual` writes what it saw into its own
+overlay. Merging is what makes an approval everyone else's baseline.
 
-A pull request that moves three snapshots shows up as three changed lines:
+**Approve** = overwrite one pointer. **Deny** = don't merge.
 
-```diff
-   "button--primary": "a3f1c8…",
--  "card--default": "9c2d04…",
-+  "card--default": "71be5a…",
-   "badge--success": "0ef7a2…",
-```
+The verdict is the `Visual` commit status, not the job that produced it: a job
+has two colours and "someone needs to look at this" is neither.
 
-Which means review, permissions, history, blame, revert and required approvers
-are the ones you already have, working the way they already work.
+| | |
+|---|---|
+| 🟡 pending | stories moved and nobody has accepted them |
+| 🟢 success | nothing moved, or `/approve-visual` accepted what did |
+| 🔴 failure | a story never rendered, or the capture died |
+
+Which means review, permissions and required approvers are the ones you already
+have, working the way they already work — and approving costs one write instead
+of a commit and a second full capture.
 
 ### Why content-addressed
 
@@ -104,15 +112,17 @@ That is the only capture path that is allowed to produce a baseline.
 sed -i '' 's/#2b6cb0/#7c3aed/' src/components/Button.jsx
 ```
 
-Then run the loop against a throwaway manifest, so the committed one stays put:
+Then run the loop against a throwaway store, so the real baseline stays put:
 
 ```bash
 yarn selfcheck
 ```
 
-It seeds a baseline, recolours the button, proves the change is caught, approves
-one story, approves the rest, and proves the suite goes quiet again — through
-the real pipeline, not a mock.
+It seeds a baseline as main, recolours the button, proves a pull request catches
+it, approves it, deletes a story and approves that too — through the real
+pipeline, not a mock. It also asserts the two properties the overlay exists for:
+approving on a pull request never moves main's baseline, and an accepted removal
+leaves a tombstone the next run reads as "gone, and that is fine".
 
 Note what it asserts: **three** stories move, not one. `Card` renders a
 `Button`, so recolouring the button moves every story downstream of it. That
@@ -184,22 +194,22 @@ that is a judgement call worth making deliberately rather than by default.
    show them inline.
 2. A human looks at the pictures without leaving the pull request. (The comment
    also links a fuller report for runs too large to inline.)
-3. They comment `/approve-visual`, or `/approve-visual card--default` to accept
-   only some of them.
-4. [`approve.yml`](.github/workflows/approve.yml) checks `author_association`,
-   rewrites `snapshots.json`, and pushes to the branch.
-5. It then marks the `Visual` check green on the commit it just made — because
-   a push authenticated with `GITHUB_TOKEN` deliberately does not start a
-   workflow, so that commit would otherwise sit at `action_required` and block
-   the merge. Push with a PAT or a GitHub App token if you would rather have a
-   real second run.
+3. Until someone accepts, the `Visual` status on that commit is yellow. Add it
+   to the ruleset and yellow blocks the merge.
+4. They comment `/approve-visual`. All of it or none of it: with no second
+   capture to correct a wrong guess, a partial approval would have to settle the
+   check green over the stories nobody named.
+5. [`approve.yml`](.github/workflows/approve.yml) checks `author_association`,
+   writes the pull request's overlay, and turns the status green on the head
+   commit.
 
 The comment is edited in place across pushes, so a story approved earlier stops
 being flagged and only genuinely new movement shows up.
 
-Step 4 does **not** re-run the browser. The pixels are already in the store
-under their content hash, so accepting is pure bookkeeping — it takes seconds,
-and it cannot disagree with what the reviewer actually looked at.
+Step 5 does **not** re-run the browser, and does not push a commit. The pixels
+are already in the store under their content hash, so accepting is one
+overwritten pointer — it takes seconds, and it cannot disagree with what the
+reviewer actually looked at.
 
 The permission check is one line, because the question "may this person approve"
 is the same question as "may this person write to the repo", and GitHub has
@@ -230,7 +240,7 @@ Everything else is defensive:
 Verify the whole chain before trusting it:
 
 ```bash
-yarn snap:docker    # captures twice in the container, compares the manifests
+yarn snap:docker    # captures twice in the container, compares the baselines
 ```
 
 If that isn't byte-identical, fix it before building anything on top.

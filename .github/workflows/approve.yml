@@ -29,22 +29,23 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/comments/${{ github.event.comment.id }}/reactions" -f content=eyes
 
+      # The sha as well as the ref: the check being settled hangs on the commit
+      # the reviewer looked at, and naming the branch instead would settle
+      # whatever landed on it since.
       - name: Resolve the pull request head
         id: pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh api "repos/${GITHUB_REPOSITORY}/pulls/${{ github.event.issue.number }}" \
-            --jq '"ref=\(.head.ref)\nrepo=\(.head.repo.full_name)"' >> "$GITHUB_OUTPUT"
+            --jq '"ref=\(.head.ref)\nrepo=\(.head.repo.full_name)\nsha=\(.head.sha)"' >> "$GITHUB_OUTPUT"
 
-      # Note: GITHUB_TOKEN cannot push to a fork. For fork pull requests this
-      # step needs a token that can, or the contributor runs `yarn snap:accept`
-      # themselves and commits the manifest.
+      # For the scripts, not to write to: approving touches the store and the
+      # check, never the pull request's own branch.
       - uses: actions/checkout@v6
         with:
           repository: ${{ steps.pr.outputs.repo }}
           ref: ${{ steps.pr.outputs.ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Find the run being approved
         id: run
@@ -82,51 +83,40 @@ jobs:
             "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .snapinator/store
 
       # No Storybook build and no browser: the pixels are already in the store
-      # under their content hash, so this is a manifest edit and nothing more.
+      # under their content hash, so this is one overwritten pointer.
       - name: Move the baseline
         env:
           SNAPINATOR_STORE: ${{ vars.SNAPINATOR_STORE }}
-          COMMENT: ${{ github.event.comment.body }}
-        run: |
-          # `cut -f2-` would hand back the whole line when there is no space,
-          # turning a bare `/approve-visual` into a story id. Strip the command
-          # instead; what remains is empty (accept everything) or a list.
-          line=$(printf '%s' "$COMMENT" | head -1)
-          ids="${line#/approve-visual}"
-          node scripts/accept.mjs "${{ steps.run.outputs.id }}" $ids
+          SNAPINATOR_OVERLAY: baseline/pr-${{ github.event.issue.number }}.json
+        run: node scripts/accept.mjs "${{ steps.run.outputs.id }}"
 
-      - name: Commit
-        id: commit
-        env:
-          APPROVER: ${{ github.event.comment.user.login }}
+      # Without a bucket the store is the Pages branch, so the overlay accept.mjs
+      # just wrote is a commit on that branch — never on the pull request's own.
+      - name: Publish the store
+        if: vars.SNAPINATOR_STORE == ''
+        working-directory: .snapinator/store
         run: |
-          if git diff --quiet snapshots.json; then
-            echo "Manifest already up to date."
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add snapshots.json
-          git commit -m "chore(visual): accept baselines approved by @${APPROVER}"
-          git push
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing new to publish."
+          else
+            git commit -qm "chore(visual): accept baselines approved by @${{ github.event.comment.user.login }}"
+            git push -q origin HEAD:visual-store
+          fi
 
-      # A push made with GITHUB_TOKEN deliberately does not start a workflow, so
-      # the new commit would sit at `action_required` forever and block the
-      # merge. Settle the check here: the manifest was written from the hashes
-      # of the run a human just looked at, so re-capturing could only introduce
-      # a disagreement with what they approved.
-      #
-      # Push with a PAT or a GitHub App token instead if you would rather have
-      # a genuine second run.
-      - name: Settle the check on the new commit
-        if: steps.commit.outputs.sha != ''
+      # No commit to the branch and no re-capture: the overlay is what the next
+      # run reads, and this settles the check for the commit the reviewer was
+      # actually looking at. Re-running the suite to record a decision would
+      # cost a full capture to reach the same answer.
+      - name: Settle the check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPROVER: ${{ github.event.comment.user.login }}
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/statuses/${{ steps.commit.outputs.sha }}" \
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${{ steps.pr.outputs.sha }}" \
             -f state=success \
             -f context="Visual" \
-            -f description="Baselines approved by @${APPROVER}" \
+            -f description="Approved by @${APPROVER}" \
             -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"

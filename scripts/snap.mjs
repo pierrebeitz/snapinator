@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 /*
- * Screenshot every story, hash it, compare against the manifest.
+ * Screenshot every story, hash it, compare against the baseline.
  *
  *   node scripts/snap.mjs                 capture, diff, report; exit 1 on change
- *   node scripts/snap.mjs --accept        ...and rewrite snapshots.json
- *   node scripts/snap.mjs --accept=a,b    ...for these story ids only
+ *   node scripts/snap.mjs --accept        ...and move the baseline
  *
- * The manifest (snapshots.json) is the only thing that lives in git: one line
- * per story, `storyId -> sha256`. Pixels live in the store. "Approving" a
- * change is therefore a one-line commit, reviewed like any other.
+ * The baseline is `storyId -> sha256`, and it lives in the store beside the
+ * pixels rather than in git. Approving a change is one overwritten pointer, so
+ * nothing has to push a commit and re-run the suite to record a decision.
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -34,15 +33,17 @@ const RETRY_LIMIT = Number(process.env.SNAPINATOR_RETRY_LIMIT || 40);
 // Stories known to disagree with themselves. Kept in a file rather than a
 // code constant so the list is visible in review and shrinks under pressure.
 const QUARANTINE = process.env.SNAPINATOR_QUARANTINE || '';
-const MANIFEST = process.env.SNAPINATOR_MANIFEST || 'snapshots.json';
+// What main last photographed, and — on a pull request — what that pull
+// request has accepted on top of it. The overlay is sparse, and holds `null`
+// for a story whose disappearance was accepted.
+const BASELINE_KEY = process.env.SNAPINATOR_BASELINE || 'baseline/main.json';
+const OVERLAY_KEY = process.env.SNAPINATOR_OVERLAY || '';
 const WORK = '.snapinator/run';
 const VIEWPORT = { width: 1280, height: 720 };
 const RUN_ID = process.env.SNAPINATOR_RUN_ID || new Date().toISOString().replace(/[:.]/g, '-');
 
 const args = process.argv.slice(2);
-const acceptArg = args.find((a) => a === '--accept' || a.startsWith('--accept='));
-const acceptAll = acceptArg === '--accept';
-const acceptOnly = acceptArg?.startsWith('--accept=') ? acceptArg.slice(9).split(',').filter(Boolean) : [];
+const accept = args.includes('--accept');
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 const blobKey = (hash) => `img/${hash}.png`;
@@ -393,9 +394,9 @@ if (optedOut.size) console.log(`${optedOut.size} opted out with chromatic.disabl
 console.log(`Capturing ${toCapture.length} stories${quarantined.size ? `, ${quarantined.size} quarantined` : ''}`);
 const { shots, failures } = await capture(port, toCapture, shotDir);
 
-const baseline = read(MANIFEST, {});
 const store = openStore();
 console.log(`Store: ${store.describe()}`);
+const baseline = readBaseline(store);
 
 const changed = [];
 const added = [];
@@ -547,18 +548,12 @@ try {
   // Already reported above; the report is still in the run directory.
 }
 
-const accepted = acceptAll ? [...added, ...changed].map((e) => e.id) : acceptOnly;
-if (accepted.length || (acceptAll && removed.length)) {
-  const unknown = accepted.filter((id) => !(id in shots));
-  if (unknown.length) {
-    console.error(`Not captured in this run: ${unknown.join(', ')}`);
-    process.exit(2);
-  }
+if (accept) {
   const merged = { ...baseline };
-  for (const id of accepted) merged[id] = shots[id];
-  if (acceptAll) for (const id of removed) delete merged[id];
-  fs.writeFileSync(MANIFEST, `${JSON.stringify(sortKeys(merged), null, 2)}\n`);
-  console.log(`\nAccepted ${accepted.length} snapshot(s) into ${MANIFEST}`);
+  for (const { id } of [...added, ...changed]) merged[id] = shots[id];
+  for (const id of removed) delete merged[id];
+  store.writeJson(BASELINE_KEY, sortKeys(merged));
+  console.log(`\nAccepted ${added.length + changed.length} snapshot(s) into ${BASELINE_KEY}`);
 }
 console.log(`\n${added.length} added · ${changed.length} changed · ${removed.length} removed`);
 const reportAt = store.describe().replace(/\/$/, '');
@@ -567,8 +562,19 @@ console.log(`Report: ${reportAt}/report/${RUN_ID}/index.html`);
 // A story that would not render is a failure of the gate, not a footnote.
 // Leaving it out of the exit code is how a run goes green over a blank page.
 const dirty = added.length + changed.length + removed.length;
-process.exit((dirty && !acceptAll) || failures.length ? 1 : 0);
+process.exit((dirty && !accept) || failures.length ? 1 : 0);
 
 function sortKeys(obj) {
   return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+// A `null` in the overlay is an accepted removal, so it must not survive the
+// merge as a hash nothing can ever match.
+function readBaseline(store) {
+  const merged = {
+    ...store.readJson(BASELINE_KEY, {}),
+    ...(OVERLAY_KEY ? store.readJson(OVERLAY_KEY, {}) : {}),
+  };
+  for (const [id, hash] of Object.entries(merged)) if (hash === null) delete merged[id];
+  return merged;
 }

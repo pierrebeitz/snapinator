@@ -10,8 +10,7 @@
     "snap": "node scripts/snap.mjs",
     "snap:accept": "node scripts/snap.mjs --accept",
     "snap:docker": "scripts/snap-docker.sh",
-    "selfcheck": "scripts/selfcheck.sh",
-    "bootstrap": "node scripts/bootstrap.mjs"
+    "selfcheck": "scripts/selfcheck.sh"
   },
   "dependencies": {
     "react": "^19.2.0",

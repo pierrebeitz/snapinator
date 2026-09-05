@@ -8,7 +8,7 @@
 // works from a bucket, a downloaded artifact, or a laptop with no network.
 const img = (hash) => `img/${hash}.png`;
 
-export function renderReport({ runId, total, added, changed, removed, failures = [] }) {
+export function renderReport({ runId, total, skipped = 0, added, changed, removed, failures = [] }) {
   const dirty = added.length + changed.length + removed.length + failures.length;
   const ids = [...added, ...changed].map((e) => e.id);
 
@@ -43,7 +43,7 @@ export function renderReport({ runId, total, added, changed, removed, failures =
 </style>
 <header>
   <h1>${dirty ? `${dirty} snapshot${dirty === 1 ? '' : 's'} moved` : 'No visual changes'}</h1>
-  <p class="sub">${total} stories captured · run <code>${runId}</code></p>
+  <p class="sub">${total} stories captured${skipped ? ` · ${skipped} unchanged and not re-photographed` : ''} · run <code>${runId}</code></p>
 </header>
 ${dirty ? `<div class="approve">
   <p>Approve every change on the pull request by commenting:</p>

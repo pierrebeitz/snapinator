@@ -16,6 +16,7 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
+import { fingerprints } from './fingerprint.mjs';
 import { renderReport } from './report.mjs';
 import { openStore } from './store.mjs';
 
@@ -38,12 +39,23 @@ const QUARANTINE = process.env.SNAPINATOR_QUARANTINE || '';
 // for a story whose disappearance was accepted.
 const BASELINE_KEY = process.env.SNAPINATOR_BASELINE || 'baseline/main.json';
 const OVERLAY_KEY = process.env.SNAPINATOR_OVERLAY || '';
+// What a run already proved: `fingerprint -> the hash it photographed`. Written
+// by main, read by everyone, and a pointer rather than a content-addressed blob,
+// so it is always the newest one main finished. Missing is fine — the suite is
+// captured whole, which is what happened before it existed.
+const CACHE_KEY = 'fp/main.json';
 const WORK = '.snapinator/run';
 const VIEWPORT = { width: 1280, height: 720 };
 const RUN_ID = process.env.SNAPINATOR_RUN_ID || new Date().toISOString().replace(/[:.]/g, '-');
 
 const args = process.argv.slice(2);
 const accept = args.includes('--accept');
+const writeCache = process.env.SNAPINATOR_CACHE_WRITE === '1';
+// The run that records a proof is the run that takes the photograph. Main pays
+// the full capture and stays the canary for drift no fingerprint can see — a
+// font, a container rebuild, a screenshot option — because a run that skipped
+// on its own proof would re-record it and preserve that drift forever.
+const useCache = !args.includes('--no-cache') && !writeCache;
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 const blobKey = (hash) => `img/${hash}.png`;
@@ -139,6 +151,8 @@ function serve(root) {
 // Reading the declaration beats rediscovering it: these are the animated and
 // mid-flight stories a team has already ruled out, and a tool that quarantines
 // them by observation is both slower and less honest about why.
+// The browser is half of what a fingerprint has to cover: same bundle, newer
+// Chromium, different pixels.
 async function readOptOuts(port, ids) {
   const browser = await chromium.launch();
   try {
@@ -146,7 +160,7 @@ async function readOptOuts(port, ids) {
     await page.goto(`http://127.0.0.1:${port}/iframe.html?viewMode=story&id=${encodeURIComponent(ids[0])}`, { waitUntil: 'load' });
     await page.waitForFunction(() => !!window.__STORYBOOK_PREVIEW__?.storyStore, null, { timeout: 15_000 });
 
-    return await page.evaluate(async (storyIds) => {
+    const optedOut = await page.evaluate(async (storyIds) => {
       const store = window.__STORYBOOK_PREVIEW__.storyStore;
       const out = [];
       for (const id of storyIds) {
@@ -159,6 +173,8 @@ async function readOptOuts(port, ids) {
       }
       return out;
     }, ids);
+
+    return { optedOut, browser: browser.version() };
   } catch (error) {
     // Returning an empty list here would silently capture every story the suite
     // deliberately excludes, report them all as new, and let one blanket
@@ -387,16 +403,43 @@ const stories = Object.values(index.entries)
 
 const { server, port } = await serve(STATIC);
 
-const optedOut = new Set(stories.length ? await readOptOuts(port, stories.map((s) => s.id)) : []);
-const toCapture = stories.filter((s) => !optedOut.has(s.id));
+const parameters = stories.length
+  ? await readOptOuts(port, stories.map((s) => s.id))
+  : { optedOut: [], browser: '' };
+const optedOut = new Set(parameters.optedOut);
+const candidates = stories.filter((s) => !optedOut.has(s.id));
 if (optedOut.size) console.log(`${optedOut.size} opted out with chromatic.disableSnapshot`);
-
-console.log(`Capturing ${toCapture.length} stories${quarantined.size ? `, ${quarantined.size} quarantined` : ''}`);
-const { shots, failures } = await capture(port, toCapture, shotDir);
 
 const store = openStore();
 console.log(`Store: ${store.describe()}`);
 const baseline = readBaseline(store);
+
+// A story whose fingerprint is unchanged since a run that photographed it as
+// the baseline has it cannot look different now. Both halves are required: the
+// fingerprint says the build and the browser are the same, and the recorded
+// hash says what that pair produced was this exact baseline.
+//
+// This file decides as much of the pixel as the bundle does — the frozen clock
+// and the animation kill in the init script, the screenshot options — and none
+// of that lands in the build, so it has to be in the salt.
+const salt = [
+  parameters.browser,
+  VIEWPORT.width,
+  VIEWPORT.height,
+  SETTLE_MS,
+  FREEZE,
+  sha256(fs.readFileSync(new URL(import.meta.url))),
+].join('|');
+const fps = fingerprints(STATIC, candidates, salt);
+const proven = useCache ? readCache(store) : {};
+const skipped = new Set(
+  candidates.filter((s) => proven[fps.get(s.id)] && proven[fps.get(s.id)] === baseline[s.id]).map((s) => s.id)
+);
+const toCapture = candidates.filter((s) => !skipped.has(s.id));
+if (skipped.size) console.log(`${skipped.size} unchanged since the run that photographed them`);
+
+console.log(`Capturing ${toCapture.length} stories${quarantined.size ? `, ${quarantined.size} quarantined` : ''}`);
+const { shots, failures } = await capture(port, toCapture, shotDir);
 
 const changed = [];
 const added = [];
@@ -410,7 +453,8 @@ for (const [id, hash] of Object.entries(shots)) {
 // approve would re-baseline whatever it happened to render.
 const failedIds = new Set(failures.map((f) => f.id));
 const removed = Object.keys(baseline).filter(
-  (id) => !(id in shots) && !quarantined.has(id) && !optedOut.has(id) && !failedIds.has(id),
+  (id) =>
+    !(id in shots) && !quarantined.has(id) && !optedOut.has(id) && !failedIds.has(id) && !skipped.has(id),
 );
 
 // Where each story's final image lives on disk. Only a confirmed blip moves.
@@ -524,12 +568,43 @@ try {
   console.error(`\nCould not publish images to ${store.describe()}: ${error.message}`);
 }
 
+// What the baseline becomes: what this run photographed, over what it already
+// had. `--accept` writes it below; every other run just reads it to say what
+// its own fingerprints proved.
+const nextBaseline = { ...baseline };
+if (accept) {
+  for (const { id } of [...added, ...changed]) nextBaseline[id] = shots[id];
+  for (const id of removed) delete nextBaseline[id];
+}
+
+// A proof is `this fingerprint produced this baseline hash`, so it can only be
+// recorded against the hash the baseline actually ends up holding. A story
+// whose bytes moved without moving a pixel keeps its old hash, and a story that
+// failed to render has none — neither may claim to have been proved.
+if (writeCache) {
+  const agreed = Object.fromEntries(
+    candidates
+      .filter((s) => nextBaseline[s.id] && (skipped.has(s.id) || s.id in shots))
+      .map((s) => [fps.get(s.id), nextBaseline[s.id]]),
+  );
+  const file = path.join(WORK, 'fingerprints.json');
+  fs.writeFileSync(file, `${JSON.stringify(agreed, null, 2)}\n`);
+  try {
+    store.put(CACHE_KEY, file);
+    console.log(`\nRecorded ${Object.keys(agreed).length} fingerprint(s) for later runs to skip`);
+  } catch (error) {
+    console.error(`\nCould not record fingerprints: ${error.message}`);
+  }
+}
+
 // `total` is what was actually compared. Counting the opted-out and the
 // quarantined in it would let the comment claim coverage the run never had —
-// the one thing a gate must never do.
+// the one thing a gate must never do. `skipped` is counted apart because it is
+// the opposite: covered, by a fingerprint rather than by a photograph.
 const summary = {
   runId: RUN_ID,
   total: toCapture.length,
+  skipped: skipped.size,
   optedOut: optedOut.size,
   quarantined: quarantined.size,
   added,
@@ -549,10 +624,7 @@ try {
 }
 
 if (accept) {
-  const merged = { ...baseline };
-  for (const { id } of [...added, ...changed]) merged[id] = shots[id];
-  for (const id of removed) delete merged[id];
-  store.writeJson(BASELINE_KEY, sortKeys(merged));
+  store.writeJson(BASELINE_KEY, sortKeys(nextBaseline));
   console.log(`\nAccepted ${added.length + changed.length} snapshot(s) into ${BASELINE_KEY}`);
 }
 console.log(`\n${added.length} added · ${changed.length} changed · ${removed.length} removed`);
@@ -566,6 +638,19 @@ process.exit((dirty && !accept) || failures.length ? 1 : 0);
 
 function sortKeys(obj) {
   return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+// An unreadable cache is a slow run, never a wrong one, so it says so and
+// carries on — the whole suite gets photographed exactly as it did before.
+function readCache(store) {
+  const file = path.join(WORK, 'cache.json');
+  try {
+    if (!store.fetch(CACHE_KEY, file)) return {};
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    console.error(`Could not read ${CACHE_KEY}: ${error.message}`);
+    return {};
+  }
 }
 
 // A `null` in the overlay is an accepted removal, so it must not survive the

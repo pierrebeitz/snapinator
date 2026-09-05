@@ -73,6 +73,11 @@ jobs:
           SNAPINATOR_STORE: ${{ vars.SNAPINATOR_STORE }}
           SNAPINATOR_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
           SNAPINATOR_OVERLAY: ${{ github.event_name == 'pull_request' && format('baseline/pr-{0}.json', github.event.pull_request.number) || '' }}
+          # Only main writes the proof a pull request reads: its baseline is the
+          # one every branch is measured against, and a branch recording its own
+          # build there would offer other branches a verdict on a tree nobody
+          # merged. Writing it also means not reading it — see snap.mjs.
+          SNAPINATOR_CACHE_WRITE: ${{ github.event_name == 'push' && '1' || '0' }}
         run: |
           node scripts/snap.mjs ${{ github.event_name == 'push' && '--accept' || '' }} ||
             { code=$?; [ "$code" = 1 ] || exit "$code"; }

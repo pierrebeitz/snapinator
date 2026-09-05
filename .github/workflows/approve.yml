@@ -95,16 +95,9 @@ jobs:
       - name: Publish the store
         if: vars.SNAPINATOR_STORE == ''
         working-directory: .snapinator/store
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "Nothing new to publish."
-          else
-            git commit -qm "chore(visual): accept baselines approved by @${{ github.event.comment.user.login }}"
-            git push -q origin HEAD:visual-store
-          fi
+        env:
+          MESSAGE: "chore(visual): accept baselines approved by @${{ github.event.comment.user.login }}"
+        run: sh ../../scripts/publish-store.sh
 
       # No commit to the branch and no re-capture: the overlay is what the next
       # run reads, and this settles the check for the commit the reviewer was

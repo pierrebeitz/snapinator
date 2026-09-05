@@ -84,23 +84,16 @@ jobs:
           path: .snapinator/run/report
           if-no-files-found: ignore
 
-      # A pull request from a fork gets a read-only token no matter what the
-      # permissions block says, so this cannot push and must not fail the run.
-      # Those PRs fall back to the report artifact.
+      # Only a fork's read-only token may fail here. On main a lost push is a
+      # baseline that silently did not move, which is the whole failure this
+      # design exists to prevent.
       - name: Publish the store
         if: vars.SNAPINATOR_STORE == ''
-        continue-on-error: true
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         working-directory: .snapinator/store
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "Nothing new to publish."
-          else
-            git commit -qm "chore: snapshots from run ${GITHUB_RUN_ID}"
-            git push -q origin HEAD:visual-store
-          fi
+        env:
+          MESSAGE: "chore: snapshots from run ${{ github.run_id }}"
+        run: sh ../../scripts/publish-store.sh
 
       # Pages takes a moment to serve a fresh push, and GitHub's image proxy
       # caches what it finds on first fetch — including a 404. Wait for the
